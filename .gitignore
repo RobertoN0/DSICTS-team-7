@@ -1,0 +1,6 @@
+.vscode/
+runs/
+target/
+virenv/
+energibridge
+LibreHardwareMonitor.sys
