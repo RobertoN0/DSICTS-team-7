@@ -1,0 +1,125 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Video Range Playback Demo</title>
+  <style>body{font-family:Arial,Helvetica,sans-serif;padding:1rem}video{max-width:100%;border:1px solid #ccc}</style>
+</head>
+<body>
+  <h2>Video Range Playback Demo</h2>
+
+  <p>Enter a <code>storedFilename</code> (the value returned by the upload endpoint) and click <strong>Play</strong>.
+  The page will attempt a MediaSource-based incremental fetch (works best with fragmented MP4). If that fails it will fall back to a normal <code>&lt;video&gt;</code> tag which also uses Range requests transparently.</p>
+
+  <label>Stored filename: <input id="filename" style="width:60%" placeholder="1696000000000-...-uuid.mp4"></label>
+  <button id="play">Play</button>
+  <p id="status"></p>
+
+  <video id="player" controls></video>
+
+  <script>
+    const base = '/videos/';
+    const status = document.getElementById('status');
+    document.getElementById('play').addEventListener('click', async () => {
+      status.textContent = '';
+      const filename = document.getElementById('filename').value.trim();
+      if (!filename) { status.textContent = 'Please enter storedFilename'; return; }
+
+      // Try MediaSource incremental fetch first (works for fMP4). If it fails, fallback to simple src.
+      if (!('MediaSource' in window)) {
+        status.textContent = 'MediaSource API not available in this browser — using direct src fallback.';
+        const vid = document.getElementById('player');
+        vid.src = base + encodeURIComponent(filename);
+        vid.play().catch(()=>{});
+        return;
+      }
+
+      const url = base + encodeURIComponent(filename);
+      try {
+        status.textContent = 'Probing file...';
+        // HEAD to get content-type and size
+        const head = await fetch(url, { method: 'HEAD' });
+        if (!head.ok) throw new Error('HEAD failed: ' + head.status);
+        const ctype = head.headers.get('content-type') || 'video/mp4';
+        const len = parseInt(head.headers.get('content-length') || '0', 10);
+        status.textContent = `Content-Type: ${ctype}, size=${len}`;
+
+        // Use a reasonable chunk size
+        const CHUNK = 1024 * 1024; // 1MB
+
+        const mediaSource = new MediaSource();
+        const vid = document.getElementById('player');
+        vid.src = URL.createObjectURL(mediaSource);
+
+        mediaSource.addEventListener('sourceopen', async () => {
+          status.textContent = 'MediaSource opened; creating SourceBuffer for ' + ctype;
+          let mime = ctype;
+          // If server returns generic video/mp4 without codecs, try a common codec hint
+          if (/video\/mp4/i.test(ctype) && !/codecs=/i.test(ctype)) {
+            mime = 'video/mp4; codecs="avc1.42E01E, mp4a.40.2"';
+          }
+
+          let sb;
+          try {
+            sb = mediaSource.addSourceBuffer(mime);
+          } catch (err) {
+            status.textContent = 'SourceBuffer creation failed: ' + err + '. Falling back to direct src.';
+            URL.revokeObjectURL(vid.src);
+            vid.src = url;
+            vid.play().catch(()=>{});
+            return;
+          }
+
+          let pos = 0;
+          let fetching = false;
+
+          const fetchNext = async () => {
+            if (fetching) return;
+            if (pos >= len) {
+              try { mediaSource.endOfStream(); } catch (e) {}
+              return;
+            }
+            fetching = true;
+            const end = Math.min(len - 1, pos + CHUNK - 1);
+            status.textContent = `Fetching bytes ${pos}-${end}...`;
+            try {
+              const r = await fetch(url, { headers: { Range: `bytes=${pos}-${end}` } });
+              if (r.status === 206 || r.status === 200) {
+                const buf = await r.arrayBuffer();
+                sb.appendBuffer(buf);
+                // wait for updateend
+                await new Promise((res, rej) => {
+                  const onUpdate = () => { sb.removeEventListener('updateend', onUpdate); res(); };
+                  sb.addEventListener('updateend', onUpdate);
+                });
+                pos = end + 1;
+                fetching = false;
+                // enqueue next chunk
+                fetchNext();
+              } else {
+                throw new Error('Range fetch failed: ' + r.status);
+              }
+            } catch (err) {
+              status.textContent = 'Fetch/append error: ' + err + ' — falling back to direct src.';
+              try { mediaSource.endOfStream(); } catch (e) {}
+              URL.revokeObjectURL(vid.src);
+              vid.src = url;
+              vid.play().catch(()=>{});
+            }
+          };
+
+          // Start fetching
+          fetchNext();
+        });
+
+        vid.play().catch(()=>{});
+      } catch (err) {
+        status.textContent = 'Probe failed: ' + err + ' — using direct src.';
+        const vid = document.getElementById('player');
+        vid.src = url;
+        vid.play().catch(()=>{});
+      }
+    });
+  </script>
+</body>
+</html>

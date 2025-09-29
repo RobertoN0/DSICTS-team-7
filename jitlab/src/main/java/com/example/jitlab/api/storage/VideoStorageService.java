@@ -75,6 +75,24 @@ public class VideoStorageService {
     return cleaned.trim();
   }
 
+  /**
+   * Resolve a stored filename to an absolute, validated path inside the upload directory.
+   * Throws NoSuchFileException if not found, SecurityException if path is outside root.
+   */
+  public Path loadAsPath(String storedFilename) throws IOException {
+    if (storedFilename == null || storedFilename.isBlank()) {
+      throw new IllegalArgumentException("Missing filename");
+    }
+    Path target = rootDir.resolve(storedFilename).normalize();
+    if (!target.startsWith(rootDir)) {
+      throw new SecurityException("Invalid path");
+    }
+    if (!Files.exists(target)) {
+      throw new NoSuchFileException(target.toString());
+    }
+    return target;
+  }
+
   public record StoredVideo(
       String id,
       String originalFilename,
