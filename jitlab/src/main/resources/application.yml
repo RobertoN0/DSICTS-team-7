@@ -1,6 +1,17 @@
 server:
   port: 8080
 
+spring:
+  servlet:
+    multipart:
+      max-file-size: 600MB
+      max-request-size: 600MB
+
+app:
+  video:
+    upload-dir: videos
+    max-size-bytes: 524288000 # 500MB
+
 management:
   endpoints:
     web:
