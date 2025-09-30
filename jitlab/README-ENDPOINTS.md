@@ -87,3 +87,69 @@ This file documents the HTTP endpoints, dev flags, demo page and testing command
    ```bash
    curl -v -H "Range: bytes=0-1023" http://localhost:8080/videos/<storedFilename> -o part.bin
    ```
+
+  ## Notes about the current codebase (2025-09-30)
+
+  - Headless Locust: we run Locust in headless mode for automated, scriptable experiments. "Headless" means Locust runs without its web UI and instead executes the defined user behaviour from the `tools/locustfile.py` directly from the command line. Use `locust --headless -f tools/locustfile.py -u <users> -r <spawn_rate> -t <duration> --csv=<out_prefix>` to run a timed experiment; `one_run.py` wraps this to start the monitor and save CSVs.
+
+  - Merged controller: the upload and download endpoints are now in a single `VideoController.java` under `src/main/java/com/example/jitlab/api/`. It exposes:
+    - GET `/videos/{storedFilename}` — full file or single-range partial content support (206) with `Accept-Ranges: bytes`.
+    - POST `/videos/upload` — multipart `file` upload (returns JSON with metadata and `storedFilename`).
+    The merged controller delegates storage to `VideoStorageService`.
+
+  ## Current status / recommended next steps
+
+  - Current: `tools/locustfile.py` is the primary experiment definition. `tools/range_loader.py` remains available for single-mode range-only experiments. `tools/upload_loader.py` was removed in favour of centralized upload task inside Locust.
+  - To reproduce multipart parsing issues or to validate uploads:
+    1. Ensure there is a small test file in `jitlab/videos/` (or point the Locust env `VIDEOS_DIR` to a folder with test files).
+    2. Start the app (`mvn spring-boot:run` or `java -jar target/...jar`) and tail logs.
+    3. Run a short headless Locust run that will exercise uploads (e.g., `locust -f tools/locustfile.py --headless -u 20 -r 5 -t 1m --csv=runs/locust_smoke`) or use `one_run.py`.
+
+  ---
+  Revision: synchronized with codebase state and recent changes (2025-09-30).
+
+  ## Suggestions for tomorrow (prioritized)
+
+  1) Reproduce and capture the multipart parsing stacktrace
+    - Goal: reliably reproduce the server-side `MultipartException` seen earlier and capture the full `Caused by:` stack frames.
+    - Steps:
+      - Ensure a small sample file exists at `jitlab/videos/test_small.mp4` (use `dd` or `ffmpeg` if needed).
+      - Start the server and tail logs: `mvn spring-boot:run` or `java -jar target/jitlab-0.0.1-SNAPSHOT.jar` then `tail -F server.log`.
+      - Run a short headless Locust smoke run that will exercise uploads: `python3 tools/one_run.py --users 10 --spawn-rate 3 --runSec 60 --outdir runs --monitor-sudo` (use `--monitor-sudo` if you need energy readings).
+      - If a multipart error appears, copy the log lines that include the topmost application frames before the Tomcat trace — those are the true root cause.
+
+  2) Run reproducible smoke experiments and collect baseline
+    - Goal: collect baseline resource and request metrics for small, medium, and larger workloads.
+    - Example runs:
+      - Small: 10 users, 1m
+      - Medium: 50 users, 5m
+      - Large: 200 users, 10m (if hardware permits)
+    - Use `python3 tools/one_run.py --users <n> --spawn-rate <r> --runSec <s> --outdir runs`.
+    - Keep all produced CSVs and a short notes file describing machine status (idle CPU, other processes) for each run.
+
+  3) Improve plotting and data wrangling
+    - Goal: unify CSV formats so `tools/plot.py` can plot outputs from range loaders, upload loaders and Locust without fragile heuristics.
+    - Plan:
+      - Add a small converter script `tools/locust_to_load.py` that reliably maps Locust stats rows to the `load` CSV format we use for plotting.
+      - Or modify `tools/plot.py` to understand both `range_loader` output and `locust _stats.csv` formats.
+
+  4) Housekeeping & automation
+    - Keep a canonical `one_run.py` (done) and remove old/duplicate code blocks. Add `--locust-bin` option if users prefer specifying a binary explicitly.
+    - Add a short `RUNBOOK.md` with commands for: starting server, reproducing multipart error, running smoke runs, and where to find CSVs/logs.
+
+  5) If multipart parsing errors only occur under load
+    - Investigate upstream/proxy and Tomcat connector settings:
+      - Check `maxPostSize` on the connector (Tomcat config) and any reverse proxy buffering/truncation.
+      - Enable structured request logging or increase Spring's multipart debug level temporarily.
+
+  Who should do what (quick delegation)
+    - Reproducer: create `videos/test_small.mp4`, run smoke upload experiment and capture logs (someone with terminal access and sudo rights).
+    - Data wrangler: add `tools/locust_to_load.py` or make `plot.py` accept Locust formats.
+    - Ops / config: if multipart errors persist under load, check any reverse proxy/nginx configuration or Tomcat connector tuning.
+
+  Quick checklist for tomorrow's first 30 minutes
+    - Create small test file (5–10 MB) in `jitlab/videos/`.
+    - Start server and confirm `http://localhost:8080/play_range.html` loads.
+    - Run `python3 tools/one_run.py --users 10 --spawn-rate 3 --runSec 60 --outdir runs --monitor-sudo` and watch logs for multipart errors.
+    - Save the run CSVs to `runs/` and attach them to the issue describing the repro.
+

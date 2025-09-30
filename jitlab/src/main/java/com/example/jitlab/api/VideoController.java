@@ -1,6 +1,8 @@
 package com.example.jitlab.api;
 
 import com.example.jitlab.api.storage.VideoStorageService;
+import com.example.jitlab.api.storage.VideoStorageService.StoredVideo;
+
 import org.springframework.core.io.InputStreamResource;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpRange;
@@ -8,25 +10,31 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.util.MimeTypeUtils;
+import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestPart;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.multipart.MultipartFile;
 
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 
 @RestController
 @RequestMapping("/videos")
-public class VideoDownloadController {
+public class VideoController {
 
   private final VideoStorageService storage;
 
-  public VideoDownloadController(VideoStorageService storage) {
+  public VideoController(VideoStorageService storage) {
     this.storage = storage;
   }
 
@@ -88,6 +96,32 @@ public class VideoDownloadController {
         .contentLength(chunkLength)
         .contentType(MediaType.parseMediaType(contentType))
         .body(resource);
+  }
+
+  /**
+   * Upload an MP4 video file.
+   * curl -F "file=@sample.mp4" http://localhost:8080/videos/upload
+   */
+  @PostMapping(value = "/upload", consumes = MediaType.MULTIPART_FORM_DATA_VALUE, produces = MediaType.APPLICATION_JSON_VALUE)
+  public ResponseEntity<?> upload(@RequestPart("file") MultipartFile file) throws Exception {
+    StoredVideo stored = storage.store(file);
+    Map<String, Object> body = Map.of(
+        "id", stored.id(),
+        "originalFilename", stored.originalFilename(),
+        "storedFilename", stored.storedFilename(),
+        "sizeBytes", stored.sizeBytes(),
+        "contentType", stored.contentType(),
+        "uploadTs", Instant.now().toString()
+    );
+    return ResponseEntity.status(HttpStatus.CREATED).body(body);
+  }
+
+  @ExceptionHandler({IllegalArgumentException.class, SecurityException.class})
+  public ResponseEntity<?> badRequest(Exception ex) {
+    return ResponseEntity.badRequest().body(Map.of(
+        "error", ex.getClass().getSimpleName(),
+        "message", ex.getMessage()
+    ));
   }
 
 }
