@@ -6,6 +6,9 @@ spring:
     multipart:
       max-file-size: 600MB
       max-request-size: 600MB
+  data:
+    mongodb:
+      uri: mongodb://localhost:27017/videodb
 
 app:
   video:
@@ -20,3 +23,5 @@ management:
   endpoint:
     health:
       show-details: "never"
+
+  

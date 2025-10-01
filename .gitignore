@@ -4,6 +4,7 @@ target/
 virenv/
 energibridge
 LibreHardwareMonitor.sys
-/jitlab/tools/__pycache__
+get_context.sh
+code_context.txt/jitlab/tools/__pycache__
 part.bin
 /jitlab/videos
