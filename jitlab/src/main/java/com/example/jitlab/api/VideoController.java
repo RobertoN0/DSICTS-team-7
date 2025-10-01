@@ -1,16 +1,11 @@
 package com.example.jitlab.api;
 
-import com.example.jitlab.api.storage.VideoStorageService;
-import com.example.jitlab.api.storage.VideoStorageService.StoredVideo;
-
 import org.springframework.core.io.InputStreamResource;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpRange;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
-import org.springframework.util.MimeTypeUtils;
-import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -22,8 +17,8 @@ import org.springframework.web.multipart.MultipartFile;
 
 import java.io.IOException;
 import java.io.InputStream;
-import java.nio.file.Files;
-import java.nio.file.Path;
+import com.example.jitlab.api.storage.GridFsVideoService;
+import org.springframework.data.mongodb.gridfs.GridFsResource;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
@@ -32,71 +27,73 @@ import java.util.Map;
 @RequestMapping("/videos")
 public class VideoController {
 
-  private final VideoStorageService storage;
+  private final GridFsVideoService storage;
 
-  public VideoController(VideoStorageService storage) {
+  public VideoController(GridFsVideoService storage) {
     this.storage = storage;
   }
-
   /**
    * Stream a video file with support for single HTTP Range header. Example:
    * curl -H "Range: bytes=0-1023" http://localhost:8080/videos/{storedFilename}
    */
-  @GetMapping(value = "/{storedFilename}")
-  public ResponseEntity<?> getVideo(
-      @PathVariable String storedFilename,
-      @RequestHeader(value = "Range", required = false) String rangeHeader
-  ) throws IOException {
-    Path path = storage.loadAsPath(storedFilename);
-    long fileLength = Files.size(path);
-    String contentType = Files.probeContentType(path);
-    if (contentType == null) contentType = MimeTypeUtils.APPLICATION_OCTET_STREAM_VALUE;
-
-    // No Range header -> return full file with 200
-    if (rangeHeader == null || rangeHeader.isBlank()) {
-      InputStreamResource resource = new InputStreamResource(Files.newInputStream(path));
-      return ResponseEntity.ok()
-          .header(HttpHeaders.ACCEPT_RANGES, "bytes")
-          .contentLength(fileLength)
-          .contentType(MediaType.parseMediaType(contentType))
-          .body(resource);
-    }
-
-    // Parse single range
-    List<HttpRange> ranges = HttpRange.parseRanges(rangeHeader);
-    if (ranges.isEmpty()) {
-      return ResponseEntity.status(HttpStatus.REQUESTED_RANGE_NOT_SATISFIABLE)
-          .header(HttpHeaders.CONTENT_RANGE, "bytes */" + fileLength)
-          .build();
-    }
-
-    HttpRange r = ranges.get(0);
-    long start = r.getRangeStart(fileLength);
-    long end = r.getRangeEnd(fileLength);
-    if (start >= fileLength) {
-      return ResponseEntity.status(HttpStatus.REQUESTED_RANGE_NOT_SATISFIABLE)
-          .header(HttpHeaders.CONTENT_RANGE, "bytes */" + fileLength)
-          .build();
-    }
-
-    long chunkLength = end - start + 1;
-    InputStream is = Files.newInputStream(path);
-    try {
-      is.skip(start);
-    } catch (IOException e) {
-      is.close();
-      throw e;
-    }
-    InputStreamResource resource = new InputStreamResource(new LimitedInputStream(is, chunkLength));
-
-    String contentRange = String.format("bytes %d-%d/%d", start, end, fileLength);
-    return ResponseEntity.status(HttpStatus.PARTIAL_CONTENT)
-        .header(HttpHeaders.ACCEPT_RANGES, "bytes")
-        .header(HttpHeaders.CONTENT_RANGE, contentRange)
-        .contentLength(chunkLength)
-        .contentType(MediaType.parseMediaType(contentType))
-        .body(resource);
+@GetMapping("/{id}")
+public ResponseEntity<?> getVideo(
+    @PathVariable String id,
+    @RequestHeader(value = "Range", required = false) String rangeHeader
+) throws IOException {
+  GridFsResource resource = storage.load(id);
+  if (resource == null) {
+    return ResponseEntity.notFound().build();
   }
+
+  long fileLength = resource.contentLength();
+  String contentType = resource.getContentType() != null ? resource.getContentType() : "video/mp4";
+
+  // Nessun Range → file intero
+  if (rangeHeader == null || rangeHeader.isBlank()) {
+    return ResponseEntity.ok()
+        .header(HttpHeaders.ACCEPT_RANGES, "bytes")
+        .contentLength(fileLength)
+        .contentType(MediaType.parseMediaType(contentType))
+        .body(new InputStreamResource(resource.getInputStream()));
+  }
+
+  // Range singolo
+  List<HttpRange> ranges = HttpRange.parseRanges(rangeHeader);
+  if (ranges.isEmpty()) {
+    return ResponseEntity.status(HttpStatus.REQUESTED_RANGE_NOT_SATISFIABLE)
+        .header(HttpHeaders.CONTENT_RANGE, "bytes */" + fileLength)
+        .build();
+  }
+
+  HttpRange r = ranges.get(0);
+  long start = r.getRangeStart(fileLength);
+  long end = r.getRangeEnd(fileLength);
+  if (start >= fileLength) {
+    return ResponseEntity.status(HttpStatus.REQUESTED_RANGE_NOT_SATISFIABLE)
+        .header(HttpHeaders.CONTENT_RANGE, "bytes */" + fileLength)
+        .build();
+  }
+
+  long chunkLength = end - start + 1;
+  InputStream is = resource.getInputStream();
+  try {
+    is.skip(start);
+  } catch (IOException e) {
+    is.close();
+    throw e;
+  }
+  InputStreamResource body = new InputStreamResource(new LimitedInputStream(is, chunkLength));
+
+  String contentRange = String.format("bytes %d-%d/%d", start, end, fileLength);
+  return ResponseEntity.status(HttpStatus.PARTIAL_CONTENT)
+      .header(HttpHeaders.ACCEPT_RANGES, "bytes")
+      .header(HttpHeaders.CONTENT_RANGE, contentRange)
+      .contentLength(chunkLength)
+      .contentType(MediaType.parseMediaType(contentType))
+      .body(body);
+}
+
 
   /**
    * Upload an MP4 video file.
@@ -104,27 +101,18 @@ public class VideoController {
    */
   @PostMapping(value = "/upload", consumes = MediaType.MULTIPART_FORM_DATA_VALUE, produces = MediaType.APPLICATION_JSON_VALUE)
   public ResponseEntity<?> upload(@RequestPart("file") MultipartFile file) throws Exception {
-    StoredVideo stored = storage.store(file);
+    String id = storage.save(file);
     Map<String, Object> body = Map.of(
-        "id", stored.id(),
-        "originalFilename", stored.originalFilename(),
-        "storedFilename", stored.storedFilename(),
-        "sizeBytes", stored.sizeBytes(),
-        "contentType", stored.contentType(),
+        "id", id,
+        "originalFilename", file.getOriginalFilename(),
+        "sizeBytes", file.getSize(),
+        "contentType", file.getContentType(),
         "uploadTs", Instant.now().toString()
     );
     return ResponseEntity.status(HttpStatus.CREATED).body(body);
   }
-
-  @ExceptionHandler({IllegalArgumentException.class, SecurityException.class})
-  public ResponseEntity<?> badRequest(Exception ex) {
-    return ResponseEntity.badRequest().body(Map.of(
-        "error", ex.getClass().getSimpleName(),
-        "message", ex.getMessage()
-    ));
-  }
-
 }
+
 
 /**
  * Simple InputStream wrapper that limits the number of readable bytes.

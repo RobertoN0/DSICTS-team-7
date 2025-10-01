@@ -10,11 +10,6 @@ spring:
     mongodb:
       uri: mongodb://localhost:27017/videodb
 
-app:
-  video:
-    upload-dir: videos
-    max-size-bytes: 524288000 # 500MB
-
 management:
   endpoints:
     web:
@@ -23,5 +18,3 @@ management:
   endpoint:
     health:
       show-details: "never"
-
-  

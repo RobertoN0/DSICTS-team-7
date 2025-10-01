@@ -5,6 +5,8 @@ virenv/
 energibridge
 LibreHardwareMonitor.sys
 get_context.sh
-code_context.txt/jitlab/tools/__pycache__
+code_context.txt
+/jitlab/tools/__pycache__
 part.bin
 /jitlab/videos
+sustainable
