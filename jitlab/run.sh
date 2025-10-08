@@ -1,8 +1,6 @@
 #!/bin/bash
 set -e
 
-docker compose up -d
-
 mvn clean package -DskipTests
 
 

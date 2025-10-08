@@ -2,6 +2,7 @@
 runs/
 target/
 virenv/
+venve
 energibridge
 LibreHardwareMonitor.sys
 get_context.sh
