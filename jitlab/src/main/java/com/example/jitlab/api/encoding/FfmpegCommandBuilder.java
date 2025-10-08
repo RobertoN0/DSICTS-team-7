@@ -21,6 +21,7 @@ public class FfmpegCommandBuilder {
             case "h264" -> gpu ? "h264_nvenc" : "libx264";
             case "hevc", "h265" -> gpu ? "hevc_nvenc" : "libx265";
             case "av1" -> gpu ? "av1_nvenc" : "libaom-av1";
+            case "vp9" -> "libvpx-vp9";
             default -> throw new IllegalArgumentException("Unsupported codec: " + codec);
         };
 

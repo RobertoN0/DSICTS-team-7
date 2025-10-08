@@ -1,15 +1,59 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+Scarica un video YouTube allA risoluzione specificata in formato MP4 **con audio**.
+Strategia:
+  1) Preferisce stream MP4 "adaptive" (video-only) alla/e risoluzione/i richiesta/e
+     + migliore audio (m4a), poi unisce con ffmpeg in un unico .mp4.
+  2) Se non trova MP4 adaptive, usa MP4 "progressive" (audio+video insieme) alla
+     migliore risoluzione disponibile ≤ richiesta.
+  3) Evita di restituire WebM come file finale (mantiene MP4).
+Requisiti: ffmpeg nel PATH, pytubefix installato.
+"""
+
 import argparse
 import os
+import re
 import shutil
 import subprocess
 import sys
+from pathlib import Path
+from typing import List, Optional
+
 from pytubefix import YouTube
 
 
-def list_streams(yt):
-    print(f"Available streams for: {yt.title}\n")
+# ----------------------------- Utils ---------------------------------
+
+def sanitize_filename(name: str) -> str:
+    # Rimuove caratteri non validi per filesystem
+    name = re.sub(r'[\\/*?:"<>|]+', "_", name)
+    name = re.sub(r"\s+", " ", name).strip()
+    return name
+
+
+def res_to_int(res: Optional[str]) -> int:
+    # "1080p" -> 1080, "0p"/None -> 0
+    if not res or not res.endswith("p"):
+        return 0
+    try:
+        return int(res[:-1])
+    except ValueError:
+        return 0
+
+
+def ffmpeg_path() -> str:
+    ff = shutil.which("ffmpeg")
+    if not ff:
+        raise EnvironmentError("ffmpeg non trovato nel PATH")
+    return ff
+
+
+# --------------------------- Listing (debug) ---------------------------
+
+def list_streams(yt: YouTube) -> None:
+    print(f"\nAvailable streams for: {yt.title}\n")
     for s in yt.streams.order_by('resolution').desc():
-        # not all streams have resolution (audio-only)
         info = {
             'itag': getattr(s, 'itag', None),
             'type': getattr(s, 'type', None),
@@ -21,149 +65,188 @@ def list_streams(yt):
             'filesize_approx': getattr(s, 'filesize_approx', None)
         }
         print(info)
+    print()
 
 
-def find_best_progressive_mp4(yt, desired_resolutions):
-    # Try progressive MP4 first (contains audio+video)
-    candidates = [s for s in yt.streams.filter(progressive=True, file_extension='mp4')]
-    # Order by desired resolution
-    for r in desired_resolutions[::-1]:
-        for s in candidates:
-            if getattr(s, 'resolution', None) == r:
+# ------------------------ Selezione degli stream ----------------------
+
+def find_best_adaptive_mp4_video(yt: YouTube, desired_resolutions: List[str]):
+    """
+    Restituisce il miglior stream MP4 adaptive (video-only) alla prima
+    risoluzione disponibile nella lista desiderata (in ordine di preferenza).
+    Se nessuna corrisponde, restituisce il miglior MP4 adaptive <= max richiesto.
+    """
+    video_mp4 = [
+        s for s in yt.streams.filter(adaptive=True, file_extension='mp4')
+        if getattr(s, 'resolution', None)
+    ]
+    if not video_mp4:
+        return None
+
+    # Ordina tutti gli adaptive mp4 per risoluzione crescente
+    video_mp4_sorted = sorted(video_mp4, key=lambda s: res_to_int(s.resolution))
+
+    # 1) match esatto in ordine di preferenza (prima voce della lista ha max priorità)
+    desired_order = [r if r.endswith("p") else f"{r}p" for r in desired_resolutions]
+    for r in desired_order:
+        for s in video_mp4_sorted:
+            if s.resolution == r:
                 return s
-    # fallback to highest resolution progressive mp4
-    if candidates:
-        return sorted(candidates, key=lambda s: int(getattr(s, 'resolution', '0p')[:-1]) if getattr(s, 'resolution', None) else 0)[-1]
-    return None
+
+    # 2) fallback: migliore <= massima desiderata
+    max_target = max((res_to_int(r) for r in desired_order), default=0)
+    candidates = [s for s in video_mp4_sorted if res_to_int(s.resolution) <= max_target]
+    return candidates[-1] if candidates else None
 
 
-def find_best_adaptive_mp4(yt, desired_resolutions):
-    # video-only mp4 streams
-    video_mp4 = [s for s in yt.streams.filter(adaptive=True, file_extension='mp4') if getattr(s, 'resolution', None)]
-    for r in desired_resolutions[::-1]:
-        for s in video_mp4:
-            if getattr(s, 'resolution', None) == r:
+def find_best_progressive_mp4(yt: YouTube, desired_resolutions: List[str]):
+    """
+    Progressivo MP4 (audio+video insieme). Usa *solo* come fallback
+    se non esistono adaptive mp4: prende il migliore ≤ risoluzione richiesta.
+    """
+    progs = [
+        s for s in yt.streams.filter(progressive=True, file_extension='mp4')
+        if getattr(s, 'resolution', None)
+    ]
+    if not progs:
+        return None
+
+    progs_sorted = sorted(progs, key=lambda s: res_to_int(s.resolution))
+    desired_order = [r if r.endswith("p") else f"{r}p" for r in desired_resolutions]
+
+    # match esatto
+    for r in desired_order:
+        for s in progs_sorted:
+            if s.resolution == r:
                 return s
-    if video_mp4:
-        return sorted(video_mp4, key=lambda s: int(getattr(s, 'resolution', '0p')[:-1]))[-1]
-    return None
+
+    # migliore ≤ obiettivo massimo
+    max_target = max((res_to_int(r) for r in desired_order), default=0)
+    candidates = [s for s in progs_sorted if res_to_int(s.resolution) <= max_target]
+    return candidates[-1] if candidates else progs_sorted[-1]
 
 
-def find_best_audio(yt):
-    # prefer m4a/aac audio, then any audio
+def find_best_audio_m4a(yt: YouTube):
+    """Preferisce audio-only in contenitore mp4/m4a (AAC)."""
     audios = [s for s in yt.streams.filter(only_audio=True)]
     if not audios:
         return None
-    # prefer file_extension mp4/m4a
-    pref = [s for s in audios if getattr(s, 'abr', None) and getattr(s, 'mime_type', '').lower().find('audio/mp4') != -1]
-    if pref:
-        return sorted(pref, key=lambda s: int(getattr(s, 'abr', '0').replace('kbps', '').strip() or 0))[-1]
-    return sorted(audios, key=lambda s: int(getattr(s, 'abr', '0').replace('kbps', '').strip() or 0))[-1]
+    # prefer audio/mp4 (m4a)
+    m4a = [s for s in audios if 'audio/mp4' in (getattr(s, 'mime_type', '') or '').lower()]
+    pool = m4a if m4a else audios
+    # bitrate più alto
+    def abr_kbps(s):
+        abr = getattr(s, 'abr', '') or ''
+        m = re.search(r'(\d+)\s*kbps', abr)
+        return int(m.group(1)) if m else 0
+    return sorted(pool, key=abr_kbps)[-1]
 
 
-def merge_with_ffmpeg(video_path, audio_path, out_path):
-    ffmpeg = shutil.which('ffmpeg')
-    if not ffmpeg:
-        raise EnvironmentError('ffmpeg not found on PATH')
-    cmd = [ffmpeg, '-y', '-i', str(video_path), '-i', str(audio_path), '-c', 'copy', str(out_path)]
+# ------------------------------ Merge ---------------------------------
+
+def merge_with_ffmpeg(video_path: Path, audio_path: Path, out_path: Path) -> None:
+    """
+    Unisce video (mp4 video-only) + audio (m4a) in un unico MP4.
+    -c:v copy mantiene il video intatto; l'audio lo riconverte in AAC per compatibilità.
+    """
+    ff = ffmpeg_path()
+    cmd = [
+        ff, "-y",
+        "-i", str(video_path),
+        "-i", str(audio_path),
+        "-c:v", "copy",
+        "-c:a", "aac", "-b:a", "192k",
+        str(out_path),
+    ]
     subprocess.run(cmd, check=True)
 
 
-def download(url, output_path='./videos', merge=False, desired_resolutions=None):
-    os.makedirs(output_path, exist_ok=True)
-    # desired_resolutions is a list ordered by preference, highest preference first
-    desired_resolutions = desired_resolutions or ['2160p', '1440p', '1080p', '720p', '480p', '360p', '240p', '144p']
+# ------------------------------ Download ------------------------------
+
+def download(url: str, output_dir: str = "./videos",
+             desired_resolutions: Optional[List[str]] = None) -> str:
+    """
+    Scarica MP4 con audio alla migliore risoluzione disponibile tra quelle desiderate.
+    Ritorna il percorso del file MP4 finale.
+    """
+    Path(output_dir).mkdir(parents=True, exist_ok=True)
+    desired_resolutions = desired_resolutions or ["1080p", "720p", "480p", "360p"]
 
     yt = YouTube(url)
-    print(f"Title: {yt.title}")
-    list_streams(yt)
+    title = sanitize_filename(yt.title)
+    print(f"Title: {title}")
 
-    # 1) try progressive mp4
+    # 1) Preferisci sempre ADAPTIVE MP4 (video-only) + audio → merge in MP4
+    v = find_best_adaptive_mp4_video(yt, desired_resolutions)
+    if v:
+        print(f"Downloading adaptive MP4 video-only: itag={v.itag} res={v.resolution}")
+        v_file = Path(v.download(output_path=output_dir))
+
+        a = find_best_audio_m4a(yt)
+        if not a:
+            raise RuntimeError("Nessun audio-only trovato (m4a/AAC) per il merge.")
+        print(f"Downloading audio-only: itag={a.itag} abr={a.abr}")
+        a_file = Path(a.download(output_path=output_dir))
+
+        merged = Path(output_dir) / f"{title}_{v.resolution}_merged.mp4"
+        try:
+            merge_with_ffmpeg(v_file, a_file, merged)
+            print(f"Merged to {merged}")
+            return str(merged)
+        finally:
+            # opzionale: lascia i sorgenti oppure pulisci
+            pass
+
+    # 2) Fallback: MP4 progressivo (audio+video insieme)
+    print("⚠️  Nessun MP4 adaptive idoneo trovato: provo MP4 progressivo…")
     prog = find_best_progressive_mp4(yt, desired_resolutions)
     if prog:
         print(f"Downloading progressive MP4: itag={prog.itag} res={prog.resolution}")
-        out_file = prog.download(output_path=output_path)
-        print('Downloaded to', out_file)
-        return out_file
+        out_file = Path(prog.download(output_path=output_dir))
+        print(f"Downloaded to {out_file}")
+        return str(out_file)
 
-    # 2) try adaptive mp4 (video-only) + audio
-    v = find_best_adaptive_mp4(yt, desired_resolutions)
-    a = find_best_audio(yt)
-    if v and a:
-        print(f"Downloading adaptive MP4 video-only: itag={v.itag} res={v.resolution}")
-        v_file = v.download(output_path=output_path)
-        print(f"Downloading audio-only: itag={a.itag} abr={a.abr}")
-        a_file = a.download(output_path=output_path)
-        # Derive merged filename
-        base = os.path.splitext(os.path.basename(v_file))[0]
-        merged = os.path.join(output_path, base + '_merged.mp4')
-        if merge:
-            try:
-                merge_with_ffmpeg(v_file, a_file, merged)
-                print('Merged to', merged)
-                return merged
-            except Exception as e:
-                print('Failed to merge automatically:', e)
-                print('Files saved as:', v_file, a_file)
-                return v_file
-        else:
-            print('Downloaded video and audio separately; use ffmpeg to merge:')
-            print(f"ffmpeg -i '{v_file}' -i '{a_file}' -c copy '{merged}'")
-            return v_file
+    # 3) Nessun MP4 disponibile
+    raise RuntimeError("Nessuno stream MP4 adatto trovato (né adaptive, né progressivo).")
 
-    # 3) fallback: allow webm
-    print('No MP4 (progressive or adaptive) available. Falling back to best available stream (may be .webm).')
-    all_streams = [s for s in yt.streams.filter(progressive=True)]
-    if all_streams:
-        best = all_streams[-1]
-        out = best.download(output_path=output_path)
-        print('Downloaded fallback stream to', out)
-        return out
 
-    raise RuntimeError('No downloadable streams found')
+# -------------------------------- CLI ---------------------------------
+
+def build_desired_list(res_arg: str) -> List[str]:
+    if res_arg.lower() == "highest":
+        return ["2160p", "1440p", "1080p", "720p", "480p", "360p", "240p", "144p"]
+    parts = [p.strip() for p in res_arg.split(",") if p.strip()]
+    out = []
+    for p in parts:
+        out.append(p if p.endswith("p") else f"{p}p")
+    # garantisci ordine dal più desiderato al meno desiderato
+    return out
 
 
 def main():
-    p = argparse.ArgumentParser()
-    p.add_argument('url', nargs='?', default='https://www.youtube.com/watch?v=LXb3EKWsInQ', help='YouTube video URL')
-    p.add_argument('--out', '-o', default='./videos', help='Output directory')
-    p.add_argument('--merge', action='store_true', help='If adaptive streams are downloaded, attempt to merge with ffmpeg')
-    p.add_argument('--list', action='store_true', help='Only list streams and exit')
-    p.add_argument('--res', '--resolution', dest='resolution', default='highest',
-                   help="Desired resolution: 'highest' (default) or specify like '720p' or '1080p'. You can also pass a comma-separated list e.g. '1080p,720p' to prefer 1080 then 720.")
-    args = p.parse_args()
+    ap = argparse.ArgumentParser(description="Scarica MP4 alla risoluzione specificata (con audio).")
+    ap.add_argument("url", help="URL YouTube")
+    ap.add_argument("--out", "-o", default="./videos", help="Cartella di output (default: ./videos)")
+    ap.add_argument("--res", "--resolution", dest="resolution", default="1080p",
+                    help="Risoluzione desiderata (es. 1080p) oppure lista separata da virgola (es. '1080p,720p') "
+                         "oppure 'highest' per massima disponibile.")
+    ap.add_argument("--list", action="store_true", help="Mostra gli stream disponibili e termina (debug).")
+    args = ap.parse_args()
 
     yt = YouTube(args.url)
+
     if args.list:
         list_streams(yt)
         return
 
-    # Build desired_resolutions list from CLI option
-    if args.resolution.lower() == 'highest':
-        desired_res = ['2160p', '1440p', '1080p', '720p', '480p', '360p', '240p', '144p']
-    else:
-        # allow comma separated list or single resolution
-        parts = [p.strip() for p in args.resolution.split(',') if p.strip()]
-        # normalize entries to end with 'p' if numeric
-        desired_res = []
-        for p in parts:
-            if p.isdigit():
-                desired_res.append(p + 'p')
-            else:
-                desired_res.append(p)
-
+    desired = build_desired_list(args.resolution)
     try:
-        result = download(args.url, output_path=args.out, merge=args.merge, desired_resolutions=desired_res)
-        print('Result file:', result)
+        final_file = download(args.url, output_dir=args.out, desired_resolutions=desired)
+        print("Result file:", final_file)
     except Exception as e:
-        print('Error:', e, file=sys.stderr)
+        print("Error:", e, file=sys.stderr)
         sys.exit(1)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()
-
-
-
-#python tools/video_downloader.py 'https://www.youtube.com/watch?v=8dQx3yZRUm4' --out ./videos
-#curl -i -F "file=@/videos/MILAN-NAPOLI 2-1 | HIGHLIGHTS | Milan is back on top of the table! | SERIE A 202526.mp4" http://localhost:8080/videos/upload
