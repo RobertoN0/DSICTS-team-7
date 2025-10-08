@@ -7,7 +7,7 @@ Locust CSV prefix into the output directory.
 
 Usage examples:
   # simple headless Locust run with monitor
-  python3 tools/one_run.py --users 50 --spawn-rate 10 --runSec 120 --outdir runs
+  python3 tools/one_run.py --users 50 --spawn-rate 10 --runSec 120 --outdir runs --codec h264 --resolution 480 --use-gpu false
 
 Notes:
   - The script expects the server process to already be running; it looks it up
@@ -43,9 +43,12 @@ def run():
     ap.add_argument("--timeout", type=int, default=60, help="Seconds to wait between runs (default: 60)")
     ap.add_argument("--warmupSec", type=int, default=0, help="Duration of the warmup phase in seconds (default: 0, no warmup)")
     ap.add_argument("--numberOfRepetitions", type=int, default=30, help="Number of times to repeat the test (default: 30)")
-    #ap.add_argument("--locustfile", default="tools/locustfile.py", help="Locustfile to run")
-    #ap.add_argument("--users", type=int, default=50, help="Number of Locust users (virtual users)")
-    #ap.add_argument("--spawn-rate", type=int, default=10, help="Locust spawn rate (users/sec)")
+    ap.add_argument("--locustfile", default="tools/locustfile_encode.py", help="Locustfile to run")
+    ap.add_argument("--users", type=int, default=5, help="Number of Locust users (virtual users)")
+    ap.add_argument("--spawn-rate", type=int, default=1, help="Locust spawn rate (users/sec)")
+    ap.add_argument("--codec", default=None, help="Codec to pass to locustfile (e.g. h264)")
+    ap.add_argument("--resolution", default=None, help="Resolution to pass to locustfile (e.g. 480)")
+    ap.add_argument("--use-gpu", default="false", help="use-gpu flag to pass to locustfile (true/false)")
     ap.add_argument("--outdir", default="runs", help="Directory to write CSV outputs")
     args = ap.parse_args()
 
@@ -106,35 +109,46 @@ def run():
 
 
         ###########################################
-                    ## Locust Start ##
-        ############################################
-        #locust_prefix = os.path.join(args.outdir, f"locust_{ts}")
-#
-        #locust_cmd = ["locust", "-f", args.locustfile, "--headless",
-        #              "-u", str(args.users), "-r", str(max(1, args.spawn_rate)),
-        #              "-t", f"{args.runSec}s", "--host", args.host,
-        #              "--csv", locust_prefix]
-#
-        ## Prefer the repo virtualenv locust binary when available (sudo strips PATH)
-        #virenv_locust = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'virenv', 'bin', 'locust'))
-        #if os.path.isfile(virenv_locust) and os.access(virenv_locust, os.X_OK):
-        #    locust_cmd[0] = virenv_locust
-#
-        #print("[one_run] START locust:", " ".join(shlex.quote(x) for x in locust_cmd))
-        #try:
-        #    ret = subprocess.run(locust_cmd).returncode
-        #except FileNotFoundError:
-        #    print("[one_run] 'locust' not found. Try activating the virtualenv or install locust in system PATH.", file=sys.stderr)
-        #    try:
-        #        if mon_p.poll() is None:
-        #            mon_p.terminate()
-        #    except Exception:
-        #        pass
-        #    sys.exit(2)
-        #print(f"[one_run] locust exited with code {ret}")
-        #if ret != 0:
-        #    print("[one_run] Locust returned non-zero exit code.")
+            ## Locust encode stress test  ##
+        ###########################################
+        locust_prefix = os.path.join(args.outdir, f"locust_{ts}")
 
+        locust_cmd = [
+            "locust", "-f", args.locustfile, "--headless",
+            "-u", str(args.users), "-r", str(max(1, args.spawn_rate)),
+            "-t", f"{args.runSec}s", "--host", args.host,
+            "--csv", locust_prefix
+        ]
+
+        # Prefer the repo virtualenv locust binary when available (sudo strips PATH)
+        virenv_locust = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'virenv', 'bin', 'locust'))
+        if os.path.isfile(virenv_locust) and os.access(virenv_locust, os.X_OK):
+            locust_cmd[0] = virenv_locust
+
+        print("[one_run] START locust:", " ".join(shlex.quote(x) for x in locust_cmd))
+        # Prepare environment for locust subprocess so we don't pass unknown
+        # CLI args to locust (sudo may forward args and locust will error).
+        env = os.environ.copy()
+        if args.codec:
+            env["LOCUST_CODEC"] = args.codec
+        if args.resolution:
+            env["LOCUST_RESOLUTION"] = args.resolution
+        if args.use_gpu:
+            env["LOCUST_USE_GPU"] = str(args.use_gpu)
+
+        try:
+            ret = subprocess.run(locust_cmd, env=env).returncode
+        except FileNotFoundError:
+            print("[one_run] 'locust' not found. Try activating the virtualenv or install locust in system PATH.", file=sys.stderr)
+            try:
+                if mon_p.poll() is None:
+                    mon_p.terminate()
+            except Exception:
+                pass
+            sys.exit(2)
+        print(f"[one_run] locust exited with code {ret}")
+        if ret != 0:
+            print("[one_run] Locust returned non-zero exit code.")
 
         ###########################################
                     ## End of Runtime ##

@@ -4,7 +4,7 @@ set -euo pipefail
 # build-profiles available: baseline | interpret | c2-only | c1-only | low-threshold | single-compiler | heap
 
 # Usage: ./run.sh [profile] -- [one_run.py args]
-# Example: ./run.sh baseline -- --monitor-sudo --runSec 5 --timeout 2 --numberOfRepetitions 1 --warmupSec 0 --outdir runs/test_profile
+# Example: ./run.sh baseline -- --monitor-sudo --runSec 5 --timeout 2 --numberOfRepetitions 1 --warmupSec 0 --codec h264 --resolution 480 --use-gpu false --outdir runs/test_profile
 
 ROOT_DIR="$(cd "$(dirname "$0")" && pwd)"
 JAR_FILE="$ROOT_DIR/target/jitlab-0.0.1-SNAPSHOT.jar"
