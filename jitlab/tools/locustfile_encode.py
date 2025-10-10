@@ -90,7 +90,7 @@ class EncodeUser(HttpUser):
         with open(video_path, "rb") as fh:
             files = {"file": (video_path.name, fh, "video/mp4")}
             # Use catch_response to annotate failures for inspection
-            with self.client.post("/encode", files=files, data=data, catch_response=True, timeout=600) as resp:
+            with self.client.post("/encode/multi", files=files, data=data, catch_response=True, timeout=600) as resp:
                 if resp.status_code != 200:
                     resp.failure(f"Unexpected status {resp.status_code}: {resp.text[:200]}")
                 else:

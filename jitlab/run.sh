@@ -3,7 +3,9 @@ set -euo pipefail
 
 # build-profiles available: baseline | interpret | c2-only | c1-only | low-threshold | single-compiler | heap
 
-# Usage: ./run.sh [profile] -- [one_run.py args]
+# Usage: ./run.sh [--no-build] [profile] -- [one_run.py args]
+# Notes:
+#   - Use --no-build (or env SKIP_BUILD=1) to skip Maven build. Useful when invoked by run_profiles.sh.
 # Example: ./run.sh baseline -- --monitor-sudo --runSec 5 --timeout 2 --numberOfRepetitions 1 --warmupSec 0 --codec h264 --resolution 480 --use-gpu false --outdir runs/test_profile
 
 ROOT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -11,7 +13,7 @@ JAR_FILE="$ROOT_DIR/target/jitlab-0.0.1-SNAPSHOT.jar"
 
 usage() {
   cat <<EOF
-Usage: $0 [profile] -- [one_run.py args]
+Usage: $0 [--no-build] [profile] -- [one_run.py args]
 
 Profiles (kept simple to match README):
   baseline        : default java -jar
@@ -24,6 +26,8 @@ Profiles (kept simple to match README):
 
 Example:
   $0 baseline -- --runSec 120
+   SKIP_BUILD=1 $0 c2-only -- --runSec 120
+   $0 --no-build interpret -- --runSec 120
 EOF
 }
 
@@ -33,6 +37,14 @@ if [ "${1-}" = "-h" ] || [ "${1-}" = "--help" ]; then
 fi
 
 PROFILE_DEFAULT="baseline"
+
+# Parse optional --no-build flag before profile
+NO_BUILD_FLAG=0
+while [ "${1-}" = "--no-build" ]; do
+  NO_BUILD_FLAG=1
+  shift || true
+done
+
 PROFILE="${1-}"
 
 if [ -z "$PROFILE" ] || [[ "$PROFILE" == --* ]]; then
@@ -86,8 +98,12 @@ fi
 ###########################################
           ## Build MVN project ##
 ###########################################
-echo "[run.sh] Building project (maven)..."
-(cd "$ROOT_DIR" && mvn clean package -DskipTests)
+if [ "${SKIP_BUILD-0}" = "1" ] || [ "$NO_BUILD_FLAG" = "1" ]; then
+  echo "[run.sh] Skipping Maven build (SKIP_BUILD=${SKIP_BUILD-0}, --no-build flag=$NO_BUILD_FLAG)"
+else
+  echo "[run.sh] Building project (maven)..."
+  (cd "$ROOT_DIR" && mvn clean package -DskipTests)
+fi
 
 if [ ! -f "$JAR_FILE" ]; then
   echo "JAR not found at $JAR_FILE" >&2

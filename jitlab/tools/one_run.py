@@ -102,10 +102,16 @@ def run():
         mon_cmd = ["python3", "tools/monitor.py", "--pid", str(pid), "--interval", "1", "--duration", str(duration), "--out", mon_csv]
         # If user requested sudo for the monitor, prefix the command.
         if args.monitor_sudo:
-            print("[one_run] monitor will be started with sudo (you may be prompted for your password)")
             mon_cmd = ["sudo"] + mon_cmd
         print("[one_run] START monitor:", " ".join(shlex.quote(x) for x in mon_cmd))
+        mon_start_ts = time.time()
         mon_p = subprocess.Popen(mon_cmd, stdout=sys.stdout, stderr=sys.stderr)
+        mon_expected_end_ts = mon_start_ts + duration
+        try:
+            human_end = time.strftime('%H:%M:%S', time.localtime(mon_expected_end_ts))
+        except Exception:
+            human_end = str(mon_expected_end_ts)
+        print(f"[one_run] Monitor PID: {mon_p.pid}; expected end at ~{human_end} (ts={mon_expected_end_ts:.0f})")
 
 
         ###########################################
@@ -156,16 +162,30 @@ def run():
 
         # Wait for monitor to finish; enforce a small deadline
         print("[one_run] WAIT monitor to finish…")
-        deadline = time.time() + duration + 15
+        # Wait until shortly after the expected end time (buffer 15s)
+        deadline = mon_expected_end_ts + 15
         while mon_p.poll() is None and time.time() < deadline:
             time.sleep(0.2)
         if mon_p.poll() is None:
-            print("[one_run] monitor did not exit in time; terminating…", file=sys.stderr)
-            mon_p.terminate()
+            print("[one_run] monitor did not exit in time; attempting graceful shutdown…", file=sys.stderr)
+            # Provide a quick snapshot of the process state (if ps is available)
             try:
-                mon_p.wait(timeout=5)
+                subprocess.run(["ps", "-o", "pid,etimes,cmd", "-p", str(mon_p.pid)], check=False)
+            except Exception:
+                pass
+
+            # Try SIGINT first (monitor handles KeyboardInterrupt), then SIGTERM, then SIGKILL
+            import signal
+            try:
+                mon_p.send_signal(signal.SIGINT)
+                mon_p.wait(timeout=3)
             except subprocess.TimeoutExpired:
-                mon_p.kill()
+                try:
+                    mon_p.terminate()
+                    mon_p.wait(timeout=3)
+                except subprocess.TimeoutExpired:
+                    print("[one_run] monitor still alive; killing…", file=sys.stderr)
+                    mon_p.kill()
 
     print("\n✅ Done.")
     print(f"Locust CSV prefix: {locust_prefix}*")

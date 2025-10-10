@@ -10,6 +10,7 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "$0")" && pwd)"
 RUN_SCRIPT="$ROOT_DIR/run.sh"
+JAR_FILE="$ROOT_DIR/target/jitlab-0.0.1-SNAPSHOT.jar"
 
 if [ ! -x "$RUN_SCRIPT" ]; then
   echo "Existing run script not found or not executable: $RUN_SCRIPT" >&2
@@ -17,7 +18,16 @@ if [ ! -x "$RUN_SCRIPT" ]; then
 fi
 
 # Profiles to run (in order)
-PROFILES=(baseline interpret c2-only c1-only low-threshold single-compiler heap)
+PROFILES=(baseline c2-only c1-only) # interpret low-threshold single-compiler heap
+
+# Build once up-front (fail fast if build fails)
+echo "[run_profiles] Building project once via Maven..."
+(cd "$ROOT_DIR" && mvn clean package -DskipTests)
+
+if [ ! -f "$JAR_FILE" ]; then
+  echo "[run_profiles] ERROR: Built JAR not found at $JAR_FILE" >&2
+  exit 2
+fi
 
 # Collect remaining args (forwarded to one_run)
 if [ "${1-}" = "--" ]; then
@@ -60,8 +70,9 @@ for p in "${PROFILES[@]}"; do
   newargs+=("--outdir" "$outdir")
 
   # Run the existing run.sh which will build/start the server and call one_run.py
-  echo "[run_profiles] Command: $RUN_SCRIPT $p -- ${newargs[*]}"
-  "$RUN_SCRIPT" "$p" -- "${newargs[@]}"
+  # We set SKIP_BUILD=1 so run.sh will not invoke Maven again.
+  echo "[run_profiles] Command: SKIP_BUILD=1 $RUN_SCRIPT $p -- ${newargs[*]}"
+  SKIP_BUILD=1 "$RUN_SCRIPT" "$p" -- "${newargs[@]}"
 
   echo "[run_profiles] Completed profile: $p"
 done
