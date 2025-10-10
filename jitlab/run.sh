@@ -110,6 +110,21 @@ start_server() {
   echo "[run.sh] Server PID: $SERVER_PID"
 }
 
+# at top of script (before defining stop_server):
+CLEANUP_DONE=0
+
+cleanup() {
+  if [ "${CLEANUP_DONE:-0}" -ne 0 ]; then
+    return
+  fi
+  CLEANUP_DONE=1
+  echo "[run.sh] Cleaning up (cleanup() called)"
+  stop_server || true
+}
+
+# trap that preserves original exit code and calls cleanup exactly once
+trap 'rc=$?; echo "[run.sh] Trapped exit - cleaning up (rc=$rc)"; cleanup; exit $rc' EXIT INT TERM
+
 stop_server() {
   if [ "$SERVER_PID" -ne 0 ] 2>/dev/null; then
     echo "[run.sh] Stopping server PID $SERVER_PID"
@@ -117,8 +132,6 @@ stop_server() {
     wait "$SERVER_PID" 2>/dev/null || true
   fi
 }
-
-trap 'echo "[run.sh] Trapped exit - cleaning up"; stop_server; exit' EXIT INT TERM
 
 ###########################################
   ## Start Server with correct profile ##
@@ -164,5 +177,6 @@ echo "[run.sh] Running orchestrator: $PY $ONE_RUN ${ARGS[*]}"
 
 echo "[run.sh] Orchestrator finished. Cleaning up..."
 stop_server
+CLEANUP_DONE=1
 
 echo "[run.sh] Done."

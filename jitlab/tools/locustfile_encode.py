@@ -10,7 +10,7 @@ VIDEO_DIR = Path(__file__).resolve().parents[1] / "videos"
 
 # Defaults if CLI flags not provided
 DEFAULT_CODECS = ["h264", "hevc", "av1"]
-DEFAULT_RESOLUTIONS = ["360", "480", "720"]
+DEFAULT_RESOLUTIONS = ["360", "480", "720", "1080"]
 DEFAULT_USE_GPU = ["false", "true"]
 
 # Global config populated from CLI options via events.init

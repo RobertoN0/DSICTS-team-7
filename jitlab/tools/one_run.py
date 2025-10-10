@@ -168,7 +168,7 @@ def run():
                 mon_p.kill()
 
     print("\n✅ Done.")
-    #print(f"Locust CSV prefix: {locust_prefix}*")
+    print(f"Locust CSV prefix: {locust_prefix}*")
     print(f"Monitor CSV:       {mon_csv}")
 
 
