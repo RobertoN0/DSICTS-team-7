@@ -1,29 +1,107 @@
 package com.example.jitlab.api.encoding;
 
+import com.example.jitlab.api.dto.EncodingMetrics;
 import com.example.jitlab.api.dto.EncodingRequest;
 import com.example.jitlab.api.dto.EncodingResult;
+import com.example.jitlab.api.dto.EncodingResultMulti;
+
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.io.IOException;
 import java.nio.file.*;
+import java.util.ArrayList;
 import java.util.List;
 
 @Service
 public class EncodingService {
 
+    /**
+     * Base method: encodes a file received as MultipartFile
+     */
     public EncodingResult encode(MultipartFile file, EncodingRequest request) throws Exception {
 
-        // Create temporary folder for encoded files if it doesn't exist
         Path projectRoot = Paths.get(System.getProperty("user.dir"));
         Path tmpDir = projectRoot.resolve("videos/tmp");
         Files.createDirectories(tmpDir);
 
-        // Save the uploaded file temporarily in the tmp directory
+        // Copy the uploaded file into a safe directory (outside Tomcat)
         Path inputFile = tmpDir.resolve("input_" + System.currentTimeMillis() + ".mp4");
         file.transferTo(inputFile.toFile());
 
-        // Define the name and path for the encoded output video
+        // Execute encoding starting from this file
+        EncodingResult result = encodeFromPath(inputFile, request);
+
+        // Remove the temporary source file
+        try {
+            Files.deleteIfExists(inputFile);
+        } catch (IOException ignored) {}
+
+        return result;
+    }
+
+    /**
+     * Method for multi-encoding into multiple resolutions
+     */
+    public EncodingResultMulti encodeMulti(MultipartFile file, EncodingRequest request) throws Exception {
+
+        List<String> resolutions = List.of("1080p", "720p", "480p", "360p");
+
+        String inputRes = request.getResolution();
+        int startIndex = resolutions.indexOf(inputRes);
+        if (startIndex == -1) {
+            throw new IllegalArgumentException("Unsupported input resolution: " + inputRes);
+        }
+
+        // Copy the file only once locally (outside Tomcat)
+        Path projectRoot = Paths.get(System.getProperty("user.dir"));
+        Path tmpDir = projectRoot.resolve("videos/tmp");
+        Files.createDirectories(tmpDir);
+
+        Path originalInput = tmpDir.resolve("multi_input_" + System.currentTimeMillis() + ".mp4");
+        file.transferTo(originalInput.toFile());
+
+        List<String> toEncode = resolutions.subList(startIndex, resolutions.size());
+        List<EncodingMetrics> results = new ArrayList<>();
+
+        // Each iteration now works on a stable local file
+        for (String res : toEncode) {
+            EncodingRequest subReq = new EncodingRequest();
+            subReq.setCodec(request.getCodec());
+            subReq.setResolution(res);
+            subReq.setUseGpu(request.isUseGpu());
+
+            EncodingResult result = encodeFromPath(originalInput, subReq);
+
+            results.add(
+                    EncodingMetrics.builder()
+                            .resolution(res)
+                            .elapsedMs(result.getElapsedMs())
+                            .outputSizeBytes(result.getOutputSizeBytes())
+                            .build()
+            );
+        }
+
+        // (Optional) delete the source file after completion
+        try {
+            Files.deleteIfExists(originalInput);
+        } catch (IOException ignored) {}
+
+        return EncodingResultMulti.builder()
+                .sourceResolution(inputRes)
+                .gpu(request.isUseGpu())
+                .metrics(results)
+                .build();
+    }
+
+    /**
+     * Internal method: performs encoding starting from an existing file on disk
+     */
+    public EncodingResult encodeFromPath(Path inputFile, EncodingRequest request) throws Exception {
+
+        Path tmpDir = inputFile.getParent();
+
+        // Define output file
         Path outputFile = tmpDir.resolve(
                 "encoded_%s_%s_%d.mp4".formatted(
                         request.getCodec(),
@@ -41,13 +119,11 @@ public class EncodingService {
                 request.isUseGpu()
         );
 
-        // Execute ffmpeg as an external process
+        // Execute ffmpeg
         long start = System.nanoTime();
         ProcessBuilder pb = new ProcessBuilder(command);
         pb.redirectErrorStream(true);
         Process proc = pb.start();
-
-        // Wait for the encoding process to finish and measure duration
         int exitCode = proc.waitFor();
         long elapsedMs = (System.nanoTime() - start) / 1_000_000;
 
@@ -55,15 +131,8 @@ public class EncodingService {
             throw new RuntimeException("FFmpeg failed with exit code: " + exitCode);
         }
 
-        // Calculate output file size
         long outputSize = Files.size(outputFile);
 
-        // Delete the temporary input file
-        try {
-            Files.deleteIfExists(inputFile);
-        } catch (IOException ignored) {}
-
-        // Build and return the result object for the controller
         return EncodingResult.builder()
                 .codec(request.getCodec())
                 .resolution(request.getResolution())

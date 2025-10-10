@@ -153,3 +153,31 @@ This file documents the HTTP endpoints, dev flags, demo page and testing command
     - Run `python3 tools/one_run.py --users 10 --spawn-rate 3 --runSec 60 --outdir runs --monitor-sudo` and watch logs for multipart errors.
     - Save the run CSVs to `runs/` and attach them to the issue describing the repro.
 
+## Encoding endpoints
+
+- POST `/encode`
+  - Content: multipart/form-data with fields:
+    - `file` (video file)
+    - `codec` (e.g., `h264`, `hevc`, `av1`, `vp9`)
+    - `resolution` (vertical height, e.g., `1080`)
+    - `useGpu` (`true`/`false`) to pick GPU encoder when available
+  - Response: JSON `EncodingResult` for a single output file at the requested resolution.
+  - Example:
+    ```bash
+    curl -F "file=@/path/to/in.mp4" -F codec=h264 -F resolution=720 -F useGpu=false \
+      http://localhost:8080/encode
+    ```
+
+- POST `/encode/multi`
+  - Content: same fields as above.
+  - Behavior: encodes the uploaded video to the given resolution and all lower rungs down to 360p. For example:
+    - `resolution=1080` -> outputs 1080, 720, 480, 360
+    - `resolution=720` -> outputs 720, 480, 360
+    - `resolution=480` -> outputs 480, 360
+  - Response: JSON array of objects with only per-resolution metrics (no filenames):
+    `[{"resolution":"1080","elapsedMs":12345,"outputSizeBytes":10485760}, ...]`
+  - Example:
+    ```bash
+    curl -F "file=@/path/to/in.mp4" -F codec=h264 -F resolution=1080 -F useGpu=true \
+      http://localhost:8080/encode/multi
+    ```

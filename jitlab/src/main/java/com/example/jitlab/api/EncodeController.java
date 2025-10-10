@@ -27,4 +27,17 @@ public class EncodeController {
             return ResponseEntity.internalServerError().body(e.getMessage());
         }
     }
+
+    @PostMapping(value = "/multi", consumes = "multipart/form-data", produces = "application/json")
+    public ResponseEntity<?> encodeVideoMulti(
+            @RequestPart("file") MultipartFile file,
+            @ModelAttribute EncodingRequest request) {
+        try {
+            var results = encodingService.encodeMulti(file, request);
+            return ResponseEntity.ok(results);
+        } catch (Exception e) {
+            e.printStackTrace();
+            return ResponseEntity.badRequest().body(e.getMessage());
+        }
+    }
 }

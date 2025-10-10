@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Scarica un video YouTube allA risoluzione specificata in formato MP4 **con audio**.
-Strategia:
-  1) Preferisce stream MP4 "adaptive" (video-only) alla/e risoluzione/i richiesta/e
-     + migliore audio (m4a), poi unisce con ffmpeg in un unico .mp4.
-  2) Se non trova MP4 adaptive, usa MP4 "progressive" (audio+video insieme) alla
-     migliore risoluzione disponibile ≤ richiesta.
-  3) Evita di restituire WebM come file finale (mantiene MP4).
-Requisiti: ffmpeg nel PATH, pytubefix installato.
+Downloads a YouTube video at the specified resolution in MP4 format **with audio**.
+Strategy:
+  1) Prefers MP4 "adaptive" (video-only) streams at the requested resolution(s)
+     + best audio (m4a), then merges with ffmpeg into a single .mp4.
+  2) If no adaptive MP4 is found, uses MP4 "progressive" (audio+video together) at the
+     best available resolution ≤ requested.
+  3) Avoids returning WebM as final file (keeps MP4).
+Requirements: ffmpeg in PATH, pytubefix installed.
 """
 
 import argparse
@@ -45,7 +45,7 @@ def res_to_int(res: Optional[str]) -> int:
 def ffmpeg_path() -> str:
     ff = shutil.which("ffmpeg")
     if not ff:
-        raise EnvironmentError("ffmpeg non trovato nel PATH")
+        raise EnvironmentError("ffmpeg not found in PATH")
     return ff
 
 
@@ -68,13 +68,13 @@ def list_streams(yt: YouTube) -> None:
     print()
 
 
-# ------------------------ Selezione degli stream ----------------------
+# ------------------------ Selection of streams ----------------------
 
 def find_best_adaptive_mp4_video(yt: YouTube, desired_resolutions: List[str]):
     """
-    Restituisce il miglior stream MP4 adaptive (video-only) alla prima
-    risoluzione disponibile nella lista desiderata (in ordine di preferenza).
-    Se nessuna corrisponde, restituisce il miglior MP4 adaptive <= max richiesto.
+    Gives the best MP4 adaptive stream (video-only) at the first
+    available resolution in the desired list (in order of preference).
+    If none match, returns the best MP4 adaptive <= max requested.
     """
     video_mp4 = [
         s for s in yt.streams.filter(adaptive=True, file_extension='mp4')
@@ -83,17 +83,17 @@ def find_best_adaptive_mp4_video(yt: YouTube, desired_resolutions: List[str]):
     if not video_mp4:
         return None
 
-    # Ordina tutti gli adaptive mp4 per risoluzione crescente
+    # Sort all adaptive mp4 by ascending resolution
     video_mp4_sorted = sorted(video_mp4, key=lambda s: res_to_int(s.resolution))
 
-    # 1) match esatto in ordine di preferenza (prima voce della lista ha max priorità)
+    # 1) exact match in order of preference (first item in list has max priority)
     desired_order = [r if r.endswith("p") else f"{r}p" for r in desired_resolutions]
     for r in desired_order:
         for s in video_mp4_sorted:
             if s.resolution == r:
                 return s
 
-    # 2) fallback: migliore <= massima desiderata
+    # 2) fallback: best <= max desired
     max_target = max((res_to_int(r) for r in desired_order), default=0)
     candidates = [s for s in video_mp4_sorted if res_to_int(s.resolution) <= max_target]
     return candidates[-1] if candidates else None
@@ -101,8 +101,8 @@ def find_best_adaptive_mp4_video(yt: YouTube, desired_resolutions: List[str]):
 
 def find_best_progressive_mp4(yt: YouTube, desired_resolutions: List[str]):
     """
-    Progressivo MP4 (audio+video insieme). Usa *solo* come fallback
-    se non esistono adaptive mp4: prende il migliore ≤ risoluzione richiesta.
+    Progressive MP4 (audio+video together). Uses *only* as fallback
+    if no adaptive mp4 exists: takes the best ≤ requested resolution.
     """
     progs = [
         s for s in yt.streams.filter(progressive=True, file_extension='mp4')
@@ -114,27 +114,27 @@ def find_best_progressive_mp4(yt: YouTube, desired_resolutions: List[str]):
     progs_sorted = sorted(progs, key=lambda s: res_to_int(s.resolution))
     desired_order = [r if r.endswith("p") else f"{r}p" for r in desired_resolutions]
 
-    # match esatto
+    # exact match
     for r in desired_order:
         for s in progs_sorted:
             if s.resolution == r:
                 return s
 
-    # migliore ≤ obiettivo massimo
+    # best ≤ max target
     max_target = max((res_to_int(r) for r in desired_order), default=0)
     candidates = [s for s in progs_sorted if res_to_int(s.resolution) <= max_target]
     return candidates[-1] if candidates else progs_sorted[-1]
 
 
 def find_best_audio_m4a(yt: YouTube):
-    """Preferisce audio-only in contenitore mp4/m4a (AAC)."""
+    """Prefers audio-only in mp4/m4a (AAC) container."""
     audios = [s for s in yt.streams.filter(only_audio=True)]
     if not audios:
         return None
     # prefer audio/mp4 (m4a)
     m4a = [s for s in audios if 'audio/mp4' in (getattr(s, 'mime_type', '') or '').lower()]
     pool = m4a if m4a else audios
-    # bitrate più alto
+    # highest bitrate
     def abr_kbps(s):
         abr = getattr(s, 'abr', '') or ''
         m = re.search(r'(\d+)\s*kbps', abr)
@@ -146,8 +146,8 @@ def find_best_audio_m4a(yt: YouTube):
 
 def merge_with_ffmpeg(video_path: Path, audio_path: Path, out_path: Path) -> None:
     """
-    Unisce video (mp4 video-only) + audio (m4a) in un unico MP4.
-    -c:v copy mantiene il video intatto; l'audio lo riconverte in AAC per compatibilità.
+    Merges video (mp4 video-only) + audio (m4a) into a single MP4.
+    -c:v copy keeps the video intact; audio is re-encoded to AAC for compatibility.
     """
     ff = ffmpeg_path()
     cmd = [
@@ -166,8 +166,8 @@ def merge_with_ffmpeg(video_path: Path, audio_path: Path, out_path: Path) -> Non
 def download(url: str, output_dir: str = "./videos",
              desired_resolutions: Optional[List[str]] = None) -> str:
     """
-    Scarica MP4 con audio alla migliore risoluzione disponibile tra quelle desiderate.
-    Ritorna il percorso del file MP4 finale.
+    Downloads MP4 with audio at the best available resolution among the desired ones.
+    Returns the path of the final MP4 file.
     """
     Path(output_dir).mkdir(parents=True, exist_ok=True)
     desired_resolutions = desired_resolutions or ["1080p", "720p", "480p", "360p"]
@@ -176,7 +176,7 @@ def download(url: str, output_dir: str = "./videos",
     title = sanitize_filename(yt.title)
     print(f"Title: {title}")
 
-    # 1) Preferisci sempre ADAPTIVE MP4 (video-only) + audio → merge in MP4
+    # 1) Prefers ADAPTIVE MP4 (video-only) + audio → merge in MP4
     v = find_best_adaptive_mp4_video(yt, desired_resolutions)
     if v:
         print(f"Downloading adaptive MP4 video-only: itag={v.itag} res={v.resolution}")
@@ -184,7 +184,7 @@ def download(url: str, output_dir: str = "./videos",
 
         a = find_best_audio_m4a(yt)
         if not a:
-            raise RuntimeError("Nessun audio-only trovato (m4a/AAC) per il merge.")
+            raise RuntimeError("No audio-only found (m4a/AAC) for merging.")
         print(f"Downloading audio-only: itag={a.itag} abr={a.abr}")
         a_file = Path(a.download(output_path=output_dir))
 
@@ -194,11 +194,11 @@ def download(url: str, output_dir: str = "./videos",
             print(f"Merged to {merged}")
             return str(merged)
         finally:
-            # opzionale: lascia i sorgenti oppure pulisci
+            # optional: keep sources or clean up
             pass
 
-    # 2) Fallback: MP4 progressivo (audio+video insieme)
-    print("⚠️  Nessun MP4 adaptive idoneo trovato: provo MP4 progressivo…")
+    # 2) Fallback: MP4 (audio+video together)
+    print("No suitable adaptive MP4 found: trying progressive MP4…")
     prog = find_best_progressive_mp4(yt, desired_resolutions)
     if prog:
         print(f"Downloading progressive MP4: itag={prog.itag} res={prog.resolution}")
@@ -206,8 +206,8 @@ def download(url: str, output_dir: str = "./videos",
         print(f"Downloaded to {out_file}")
         return str(out_file)
 
-    # 3) Nessun MP4 disponibile
-    raise RuntimeError("Nessuno stream MP4 adatto trovato (né adaptive, né progressivo).")
+    # 3) No MP4 available
+    raise RuntimeError("No suitable MP4 stream found (neither adaptive nor progressive).")
 
 
 # -------------------------------- CLI ---------------------------------
@@ -219,18 +219,18 @@ def build_desired_list(res_arg: str) -> List[str]:
     out = []
     for p in parts:
         out.append(p if p.endswith("p") else f"{p}p")
-    # garantisci ordine dal più desiderato al meno desiderato
+    # ensure order from most desired to least desired
     return out
 
 
 def main():
-    ap = argparse.ArgumentParser(description="Scarica MP4 alla risoluzione specificata (con audio).")
-    ap.add_argument("url", help="URL YouTube")
-    ap.add_argument("--out", "-o", default="./videos", help="Cartella di output (default: ./videos)")
+    ap = argparse.ArgumentParser(description="Download YouTube video in MP4 with audio.")
+    ap.add_argument("url", help="YouTube URL")
+    ap.add_argument("--out", "-o", default="./videos", help="Output directory (default: ./videos)")
     ap.add_argument("--res", "--resolution", dest="resolution", default="1080p",
-                    help="Risoluzione desiderata (es. 1080p) oppure lista separata da virgola (es. '1080p,720p') "
-                         "oppure 'highest' per massima disponibile.")
-    ap.add_argument("--list", action="store_true", help="Mostra gli stream disponibili e termina (debug).")
+                    help="Desired resolution (e.g. 1080p) or comma-separated list (e.g. '1080p,720p') "
+                         "or 'highest' for maximum available.")
+    ap.add_argument("--list", action="store_true", help="Show available streams and exit (debug).")
     args = ap.parse_args()
 
     yt = YouTube(args.url)
