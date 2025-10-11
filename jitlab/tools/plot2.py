@@ -5,72 +5,77 @@ import numpy as np
 import os
 import glob
 
-def load_experiment_data(run_dir, profile_name):
-    """Load and merge CPU and GPU data from a run directory."""
-    # Find monitor files in the directory
-    monitor_files = glob.glob(os.path.join(run_dir, 'monitor_*.csv'))
-    gpu_monitor_files = glob.glob(os.path.join(run_dir, 'gpu_monitor_*.csv'))
+def average_csv_files(file_paths, file_type='CPU', output_path=None):
+    """
+    Loads multiple CSV files and computes the row-wise average.
+    """
+    if not file_paths:
+        raise ValueError(f"File paths list for {file_type} is empty.")
+
+    print(f"Averaging data from {len(file_paths)} {file_type} files...")
+    df_list = [pd.read_csv(f) for f in file_paths]
+
+    num_rows = len(df_list[0])
+    if not all(len(df) == num_rows for df in df_list):
+        # Provide more detail in the error message
+        row_counts = [len(df) for df in df_list]
+        raise ValueError(f"All CSV files must have the same number of rows. Found counts: {row_counts}")
+
+    # Create uniform datetime timestamps, 1 second apart
+    start_ts = pd.to_datetime(df_list[0]['ts'].iloc[0], unit='s', errors='coerce')
+    new_ts = pd.date_range(start=start_ts, periods=num_rows, freq='1S')
+
+    # Average all other data columns
+    data_cols = [col for col in df_list[0].columns if col != 'ts']
+    data_arrays = [df[data_cols].to_numpy() for df in df_list]
+    stacked_data = np.stack(data_arrays, axis=0)
+    averaged_data = np.mean(stacked_data, axis=0)
     
-    if not monitor_files or not gpu_monitor_files:
-        raise FileNotFoundError(f"Could not find monitor files in {run_dir}")
+    averaged_df = pd.DataFrame(averaged_data, columns=data_cols)
+    averaged_df.insert(0, 'ts', new_ts)
     
-    # Use the first file found (or you can add logic to handle multiple runs)
-    monitor_path = monitor_files[0]
-    gpu_monitor_path = gpu_monitor_files[0]
+    # if output_path is None:
+    #     output_path = f"averaged_{file_type}.csv"
     
-    print(f"  Loading: {os.path.basename(monitor_path)}")
-    print(f"  Loading: {os.path.basename(gpu_monitor_path)}")
+    # averaged_df.to_csv(output_path, index=False, date_format='%Y-%m-%d %H:%M:%S')
+    # print(f"Averaged {file_type} data saved to: {os.path.abspath(output_path)}")
+
+    return averaged_df
+
+def merge_dataframes(cpu_df, gpu_df, profile_name):
+    """
+    Merge averaged CPU and GPU dataframes based on timestamp.
+    """
+    print("Merging averaged CPU and GPU data...")
     
-    cpu_df = pd.read_csv(monitor_path)
-    gpu_df = pd.read_csv(gpu_monitor_path)
+    # Convert Unix timestamps to datetime for merging
+    cpu_df['ts_dt'] = pd.to_datetime(cpu_df['ts'], unit='s')
+    gpu_df['ts_dt'] = pd.to_datetime(gpu_df['ts'], unit='s')
+
+    cpu_df = cpu_df.sort_values('ts_dt').reset_index(drop=True)
+    gpu_df = gpu_df.sort_values('ts_dt').reset_index(drop=True)
+
+    # Use merge_asof for time-based merge with tolerance
+    merged_df = pd.merge_asof(cpu_df, gpu_df, left_on='ts_dt', right_on='ts_dt',
+                              direction='nearest', tolerance=pd.Timedelta('1s'),
+                              suffixes=('_cpu', '_gpu'))
     
-    print(f"  Raw CPU records: {len(cpu_df)}")
-    print(f"  Raw GPU records: {len(gpu_df)}")
-    
-    # Convert Unix timestamps to datetime
-    # The timestamps are in seconds since epoch (with decimal precision)
-    cpu_df['ts'] = pd.to_datetime(cpu_df['ts'], unit='s')
-    gpu_df['ts'] = pd.to_datetime(gpu_df['ts'], unit='s')
-    
-    # Print time ranges before merge
-    cpu_duration = (cpu_df['ts'].max() - cpu_df['ts'].min()).total_seconds()
-    gpu_duration = (gpu_df['ts'].max() - gpu_df['ts'].min()).total_seconds()
-    print(f"  CPU time range: {cpu_duration:.1f} seconds")
-    print(f"  GPU time range: {gpu_duration:.1f} seconds")
-    
-    # Sort both dataframes by timestamp
-    cpu_df = cpu_df.sort_values('ts').reset_index(drop=True)
-    gpu_df = gpu_df.sort_values('ts').reset_index(drop=True)
-    
-    # Use merge_asof for time-based merge with tolerance (1 second tolerance)
-    # This allows matching timestamps that are close but not exact
-    merged_df = pd.merge_asof(cpu_df, gpu_df, on='ts', 
-                               direction='nearest', 
-                               tolerance=pd.Timedelta('1s'),
-                               suffixes=('_cpu', '_gpu'))
-    
-    # Also merge from the other direction to capture all GPU timestamps
-    merged_df2 = pd.merge_asof(gpu_df, cpu_df, on='ts', 
-                                direction='nearest', 
-                                tolerance=pd.Timedelta('1s'),
-                                suffixes=('_gpu', '_cpu'))
-    
-    # Combine both merges and remove duplicates
-    merged_df = pd.concat([merged_df, merged_df2]).drop_duplicates(subset='ts').sort_values('ts').reset_index(drop=True)
-    
-    # Forward fill any remaining missing values
+    # Clean up timestamp columns (keep the original float version from CPU)
+    merged_df = merged_df.rename(columns={'ts_cpu': 'ts'}).drop(columns=['ts_dt', 'ts_gpu'], errors='ignore')
+
+    # Forward/backward fill to handle any misalignments at the edges
     merged_df = merged_df.ffill().bfill()
     
-    merged_df['total_power_w'] = merged_df['power_w_cpu'] + merged_df['power_w_gpu']
+    # Ensure power columns exist before summing them up
+    if 'power_w_cpu' in merged_df.columns and 'power_w_gpu' in merged_df.columns:
+        merged_df['total_power_w'] = merged_df['power_w_cpu'] + merged_df['power_w_gpu']
+    else:
+        print("  Warning: Could not calculate total power, one or more power columns missing.")
+
     merged_df['profile'] = profile_name
+    print(f"  Merged records for '{profile_name}': {len(merged_df)}")
     
-    merged_duration = (merged_df['ts'].max() - merged_df['ts'].min()).total_seconds()
-    print(f"  Merged records: {len(merged_df)}")
-    print(f"  Merged time range: {merged_duration:.1f} seconds")
-    print(f"  First timestamp: {merged_df['ts'].min()}")
-    print(f"  Last timestamp: {merged_df['ts'].max()}")
-    
-    return merged_df, cpu_df, gpu_df
+    return merged_df
 
 def generate_single_experiment_plots(merged_df, cpu_df, gpu_df, title, output_prefix):
     """Generate plots for a single experiment."""
@@ -129,67 +134,67 @@ def generate_single_experiment_plots(merged_df, cpu_df, gpu_df, title, output_pr
     plt.savefig(f'{output_prefix}_2_total_energy_bar.png', dpi=150)
     print(f"✓ Saved: {output_prefix}_2_total_energy_bar.png")
     plt.close()
-    
-   # === 3. GPU Utilization Over Time ===
-    plt.figure(figsize=(12, 6))
 
-    # Normalize time
-    merged_df['time_s'] = (merged_df['ts'] - merged_df['ts'].min()).dt.total_seconds()
+    # # === 3. GPU Utilization Over Time ===
+    # plt.figure(figsize=(12, 6))
 
-    plt.plot(merged_df['time_s'], merged_df['gpu_util_percent'], color='#e74c3c', linewidth=2, label='GPU Utilization (%)')
-    plt.fill_between(merged_df['time_s'], merged_df['gpu_util_percent'], alpha=0.3, color='#e74c3c')
+    # # Normalize time
+    # merged_df['time_s'] = (merged_df['ts'] - merged_df['ts'].min()).dt.total_seconds()
 
-    # Add average line
-    avg_util = merged_df['gpu_util_percent'].mean()
-    plt.axhline(y=avg_util, color='red', linestyle='--', alpha=0.7, label=f'Avg: {avg_util:.1f}%')
+    # plt.plot(merged_df['time_s'], merged_df['gpu_util_percent'], color='#e74c3c', linewidth=2, label='GPU Utilization (%)')
+    # plt.fill_between(merged_df['time_s'], merged_df['gpu_util_percent'], alpha=0.3, color='#e74c3c')
 
-    plt.xlabel('Time (seconds)', fontsize=12)
-    plt.ylabel('GPU Utilization (%)', fontsize=12)
-    plt.title(f'{title} - GPU Utilization Over Time', fontsize=13, fontweight='bold')
-    plt.ylim(0, 100)
-    plt.xlim(left=0)  # Force x-axis to start at 0
-    plt.grid(True, alpha=0.3)
-    plt.legend(loc='upper right')
-    plt.tight_layout()
-    plt.savefig(f'{output_prefix}_3_gpu_utilization.png', dpi=150)
-    print(f"✓ Saved: {output_prefix}_3_gpu_utilization.png")
-    plt.close()
+    # # Add average line
+    # avg_util = merged_df['gpu_util_percent'].mean()
+    # plt.axhline(y=avg_util, color='red', linestyle='--', alpha=0.7, label=f'Avg: {avg_util:.1f}%')
+
+    # plt.xlabel('Time (seconds)', fontsize=12)
+    # plt.ylabel('GPU Utilization (%)', fontsize=12)
+    # plt.title(f'{title} - GPU Utilization Over Time', fontsize=13, fontweight='bold')
+    # plt.ylim(0, 100)
+    # plt.xlim(left=0)  # Force x-axis to start at 0
+    # plt.grid(True, alpha=0.3)
+    # plt.legend(loc='upper right')
+    # plt.tight_layout()
+    # plt.savefig(f'{output_prefix}_3_gpu_utilization.png', dpi=150)
+    # print(f"✓ Saved: {output_prefix}_3_gpu_utilization.png")
+    # plt.close()
     
-    # === 4. Temperature Over Time ===
-    plt.figure(figsize=(12, 6))
-    plt.plot(gpu_df['time_s'], gpu_df['temp_c'], color='#e74c3c', linewidth=2)
-    plt.fill_between(gpu_df['time_s'], gpu_df['temp_c'], alpha=0.3, color='#e74c3c')
-    plt.xlabel('Time (seconds)', fontsize=12)
-    plt.ylabel('Temperature (°C)', fontsize=12)
-    plt.xlim(left=0)  # Force x-axis to start at 0
-    plt.title(f'{title} - GPU Temperature Over Time')
-    plt.grid(True, alpha=0.3)
+    # # === 4. Temperature Over Time ===
+    # plt.figure(figsize=(12, 6))
+    # plt.plot(gpu_df['time_s'], gpu_df['temp_c'], color='#e74c3c', linewidth=2)
+    # plt.fill_between(gpu_df['time_s'], gpu_df['temp_c'], alpha=0.3, color='#e74c3c')
+    # plt.xlabel('Time (seconds)', fontsize=12)
+    # plt.ylabel('Temperature (°C)', fontsize=12)
+    # plt.xlim(left=0)  # Force x-axis to start at 0
+    # plt.title(f'{title} - GPU Temperature Over Time')
+    # plt.grid(True, alpha=0.3)
     
-    # Add average line
-    avg_temp = gpu_df['temp_c'].mean()
-    plt.axhline(y=avg_temp, color='red', linestyle='--', 
-                alpha=0.7, label=f'Avg: {avg_temp:.1f}°C')
-    plt.legend(loc='upper right')
+    # # Add average line
+    # avg_temp = gpu_df['temp_c'].mean()
+    # plt.axhline(y=avg_temp, color='red', linestyle='--', 
+    #             alpha=0.7, label=f'Avg: {avg_temp:.1f}°C')
+    # plt.legend(loc='upper right')
     
-    plt.tight_layout()
-    plt.savefig(f'{output_prefix}_4_gpu_temperature.png', dpi=150)
-    print(f"✓ Saved: {output_prefix}_4_gpu_temperature.png")
-    plt.close()
+    # plt.tight_layout()
+    # plt.savefig(f'{output_prefix}_4_gpu_temperature.png', dpi=150)
+    # print(f"✓ Saved: {output_prefix}_4_gpu_temperature.png")
+    # plt.close()
     
-    # === 5. Memory Usage Over Time ===
-    plt.figure(figsize=(12, 6))
-    plt.plot(merged_df['time_s'], merged_df['rss_mb'], label='CPU RSS (MB)', linewidth=2, color='#3498db')
-    plt.plot(merged_df['time_s'], merged_df['mem_used_MiB'], label='GPU Memory (MiB)', linewidth=2, color='#2ecc71')
-    plt.xlabel('Time (seconds)')
-    plt.ylabel('Memory Usage (MB/MiB)')
-    plt.xlim(left=0)  # Force x-axis to start at 0
-    plt.title(f'{title} - Memory Usage Over Time')
-    plt.legend()
-    plt.grid(True, alpha=0.3)
-    plt.tight_layout()
-    plt.savefig(f'{output_prefix}_5_memory_usage.png', dpi=150)
-    print(f"✓ Saved: {output_prefix}_5_memory_usage.png")
-    plt.close()
+    # # === 5. Memory Usage Over Time ===
+    # plt.figure(figsize=(12, 6))
+    # plt.plot(merged_df['time_s'], merged_df['rss_mb'], label='CPU RSS (MB)', linewidth=2, color='#3498db')
+    # plt.plot(merged_df['time_s'], merged_df['mem_used_MiB'], label='GPU Memory (MiB)', linewidth=2, color='#2ecc71')
+    # plt.xlabel('Time (seconds)')
+    # plt.ylabel('Memory Usage (MB/MiB)')
+    # plt.xlim(left=0)  # Force x-axis to start at 0
+    # plt.title(f'{title} - Memory Usage Over Time')
+    # plt.legend()
+    # plt.grid(True, alpha=0.3)
+    # plt.tight_layout()
+    # plt.savefig(f'{output_prefix}_5_memory_usage.png', dpi=150)
+    # print(f"✓ Saved: {output_prefix}_5_memory_usage.png")
+    # plt.close()
     
     # === 6. Summary Statistics ===
     fig, ax = plt.subplots(figsize=(10, 8))
@@ -566,13 +571,11 @@ def main():
                     help="Output directory for plots (default: ./plots)")
     args = ap.parse_args()
     
-    # Create output directory if it doesn't exist
     if not os.path.exists(args.output_dir):
         os.makedirs(args.output_dir)
     
-    # Find all run directories
-    run_dirs = [d for d in glob.glob(os.path.join(args.runs_dir, '*'))
-                if os.path.isdir(d)]
+    # Find all top-level experiment directories (e.g., 'runs/baseline_*')
+    run_dirs = [d for d in glob.glob(os.path.join(args.runs_dir, '*')) if os.path.isdir(d)]
     
     if not run_dirs:
         print(f"Error: No run directories found in {args.runs_dir}")
@@ -586,31 +589,47 @@ def main():
     
     all_experiments = {}
     
-    # Load all experiments
+    # Process each experiment profile
     for run_dir in run_dirs:
-        # Extract profile name from directory name (e.g., "baseline_20251011_163345" -> "baseline")
         dir_name = os.path.basename(run_dir)
-        profile_name = dir_name.split('_')[0]  # Take first part before underscore
+        profile_name = dir_name.split('_')[0]
         
-        print(f"\nLoading {profile_name} from {dir_name}...")
+        print(f"\nProcessing Profile: {profile_name.upper()} from {dir_name}...")
+        
         try:
-            merged_df, cpu_df, gpu_df = load_experiment_data(run_dir, profile_name)
-            all_experiments[profile_name] = (merged_df, cpu_df, gpu_df)
+            # Step 1: Find all iteration files for this profile using a recursive glob
+            cpu_files = glob.glob(os.path.join(run_dir, '**', 'monitor_iter.csv'), recursive=True)
+            gpu_files = glob.glob(os.path.join(run_dir, '**', 'gpu_monitor_iter.csv'), recursive=True)
+
+            if not cpu_files or not gpu_files:
+                print(f"  --> SKIPPING '{profile_name}': Could not find monitor files.")
+                continue
+
+            # Step 2: Average the data from all iterations
+            avg_cpu_df = average_csv_files(cpu_files, file_type='CPU')
+            avg_gpu_df = average_csv_files(gpu_files, file_type='GPU')
+
+            # Step 3: Merge the two averaged dataframes
+            merged_df = merge_dataframes(avg_cpu_df, avg_gpu_df, profile_name)
             
-            # Generate individual plots
-            print(f"Generating plots for {profile_name}...")
+            # Step 4: Store the results for plotting
+            # We store the averaged dataframes, which replace the old single-run dataframes
+            all_experiments[profile_name] = (merged_df, avg_cpu_df, avg_gpu_df)
+            
+            # Generate individual plots using the newly averaged & merged data
+            print(f"  Generating plots for {profile_name}...")
             output_prefix = os.path.join(args.output_dir, profile_name)
             generate_single_experiment_plots(
-                merged_df, cpu_df, gpu_df, 
+                merged_df, avg_cpu_df, avg_gpu_df, 
                 profile_name, 
                 output_prefix
             )
         except Exception as e:
-            print(f"  Error loading {profile_name}: {e}")
+            print(f"  Error processing {profile_name}: {e}")
             continue
     
     if len(all_experiments) < 2:
-        print("\nWarning: Need at least 2 profiles for comparison plots")
+        print("\nWarning: Need at least 2 profiles for comparison plots. Processing finished.")
         return
     
     print("\n" + "="*60)
@@ -623,9 +642,6 @@ def main():
     print("\n" + "="*60)
     print(f"All plots generated successfully in {args.output_dir}!")
     print("="*60)
-    print(f"\nGenerated {len(all_experiments) * 6} individual plots")
-    print("Generated 6 comparison plots")
-    print(f"Total: {len(all_experiments) * 6 + 6} plots")
 
 if __name__ == "__main__":
     main()
