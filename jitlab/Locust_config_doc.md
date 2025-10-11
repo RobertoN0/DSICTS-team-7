@@ -26,3 +26,13 @@ How to run an experiment (example)
 3) Results:
    - Locust CSV files: `runs/locust_<timestamp>_stats.csv`, etc.
    - Monitor CSV: `runs/monitor_<timestamp>.csv`
+
+
+TODO:
+- Output folder structure of each subpart to check - one directory per profile - n directories for iterations
+- Download all necessary videos
+- Choose parameters for stress test - time to run ...
+- Script plot: aggregation of data between iterations
+- Check overall functioning of one_run
+- Check sudo configuration
+
