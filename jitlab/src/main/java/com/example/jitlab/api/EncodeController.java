@@ -36,7 +36,6 @@ public class EncodeController {
             var results = encodingService.encodeMulti(file, request);
             return ResponseEntity.ok(results);
         } catch (Exception e) {
-            e.printStackTrace();
             return ResponseEntity.badRequest().body(e.getMessage());
         }
     }

@@ -89,7 +89,7 @@ public class FfmpegCommandBuilder {
         };
 
         // ---------- Decide which resolutions to generate ----------
-        List<String> available = List.of("1080", "720", "480", "360", "240");
+        List<String> available = List.of("1080", "720", "480", "360");
         int startIdx = available.indexOf(inputResolution.replace("p", ""));
         if (startIdx == -1) startIdx = 0; // default to 1080 if not found
         List<String> toGenerate = available.subList(startIdx, available.size());

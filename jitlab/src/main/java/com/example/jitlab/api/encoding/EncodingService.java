@@ -81,12 +81,27 @@ public class EncodingService {
         ProcessBuilder pb = new ProcessBuilder(command);
         pb.redirectErrorStream(true);
         Process proc = pb.start();
+            
+        //StringBuilder ffmpegOutput = new StringBuilder();
+        //try (var reader = new java.io.BufferedReader(new java.io.InputStreamReader(proc.getInputStream()))) {
+        //    String line;
+        //    while ((line = reader.readLine()) != null) {
+        //        ffmpegOutput.append(line).append("\n");
+        //    }
+        //}
+
         int exitCode = proc.waitFor();
         long elapsedMs = (System.nanoTime() - start) / 1_000_000;
 
         if (exitCode != 0) {
-            throw new RuntimeException("FFmpeg multi-encode failed with exit code: " + exitCode);
+            //System.err.println("==== FFmpeg command failed ====");
+            //System.err.println(String.join(" ", command));
+            //System.err.println("---- FFmpeg output ----");
+            //System.err.println(ffmpegOutput);
+            //System.err.println("------------------------");
+            throw new RuntimeException("FFmpeg failed with exit code: " + exitCode);
         }
+
 
         // Sum sizes of all generated outputs (best-effort over common ladder)
         long totalBytes = 0L;

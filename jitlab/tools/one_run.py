@@ -18,6 +18,7 @@ from datetime import datetime
 import argparse
 import os
 import shlex
+import shutil
 import subprocess
 import sys
 import time
@@ -80,6 +81,7 @@ def run():
                 ## Experiment Loop ##
     ############################################
     for i in range(args.numberOfRepetitions):
+        ts_i = f"{ts}_r{i+1}"
         #############################################
         ## Cool down after warmup and previous run ##
         #############################################
@@ -95,7 +97,7 @@ def run():
             sys.exit(1)
         print(f"[one_run] Using server PID: {pid}")
 
-        mon_csv = os.path.join(args.outdir, f"monitor_{ts}.csv")
+        mon_csv = os.path.join(args.outdir, f"monitor_{ts_i}.csv")
 
         # Monitor duration slightly longer than Locust run
         duration = args.runSec + 5
@@ -106,6 +108,17 @@ def run():
         print("[one_run] START monitor:", " ".join(shlex.quote(x) for x in mon_cmd))
         mon_start_ts = time.time()
         mon_p = subprocess.Popen(mon_cmd, stdout=sys.stdout, stderr=sys.stderr)
+        gpu_p = None
+        gpu_csv = None
+        if args.use_gpu == "true":
+            gpu_csv = os.path.join(args.outdir, f"gpu_monitor_{ts_i}.csv")
+            gpu_cmd = [
+                "python3", "tools/gpu_monitor.py",                
+                "--duration", str(duration),        
+                "--out", gpu_csv
+            ]
+            print("[one_run] START gpu_monitor:", " ".join(shlex.quote(x) for x in gpu_cmd))
+            gpu_p = subprocess.Popen(gpu_cmd, stdout=sys.stdout, stderr=sys.stderr)
         mon_expected_end_ts = mon_start_ts + duration
         try:
             human_end = time.strftime('%H:%M:%S', time.localtime(mon_expected_end_ts))
@@ -117,13 +130,11 @@ def run():
         ###########################################
             ## Locust encode stress test  ##
         ###########################################
-        locust_prefix = os.path.join(args.outdir, f"locust_{ts}")
 
         locust_cmd = [
             "locust", "-f", args.locustfile, "--headless",
             "-u", str(args.users), "-r", str(max(1, args.spawn_rate)),
             "-t", f"{args.runSec}s", "--host", args.host,
-            "--csv", locust_prefix
         ]
 
         # Prefer the repo virtualenv locust binary when available (sudo strips PATH)
@@ -186,11 +197,48 @@ def run():
                 except subprocess.TimeoutExpired:
                     print("[one_run] monitor still alive; killing…", file=sys.stderr)
                     mon_p.kill()
+        if gpu_p is not None:
+            print("[one_run] WAIT gpu_monitor to finish…")
+            # Give it a small grace period after the expected end of the CPU monitor
+            gpu_deadline = mon_expected_end_ts + 15  # same pattern as your CPU monitor wait
+            while gpu_p.poll() is None and time.time() < gpu_deadline:
+                time.sleep(0.2)
 
-    print("\n✅ Done.")
-    print(f"Locust CSV prefix: {locust_prefix}*")
+            if gpu_p.poll() is None:
+                # Gentle stop first (SIGINT), then escalate if needed
+                print("[one_run] gpu_monitor still running; sending SIGINT…", file=sys.stderr)
+                try:
+                    import signal
+                    gpu_p.send_signal(signal.SIGINT)
+                    gpu_p.wait(timeout=3)
+                except subprocess.TimeoutExpired:
+                    print("[one_run] gpu_monitor did not exit; sending terminate…", file=sys.stderr)
+                    try:
+                        gpu_p.terminate()
+                        gpu_p.wait(timeout=3)
+                    except subprocess.TimeoutExpired:
+                        print("[one_run] gpu_monitor still alive; kill.", file=sys.stderr)
+                        gpu_p.kill()
+        ###########################################
+                ## Cleanup between runs ##
+        ###########################################
+        try:
+            # Kill any ffmpeg process still running
+            print("[one_run] Killing any ffmpeg processes...")
+            subprocess.run(["pkill", "-9", "ffmpeg"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            
+            # Delete and recreate videos/tmp directory
+            tmp_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "videos", "tmp"))
+            print(f"[one_run] Cleaning directory: {tmp_dir}")
+            shutil.rmtree(tmp_dir, ignore_errors=True)
+        except Exception as e:
+            print(f"[one_run] Cleanup failed: {e}", file=sys.stderr)
+        ###########################################
+
+
     print(f"Monitor CSV:       {mon_csv}")
-
+    if 'gpu_csv' in locals() and gpu_csv:
+        print(f"GPU monitor CSV:   {gpu_csv}")
 
 if __name__ == "__main__":
     run()

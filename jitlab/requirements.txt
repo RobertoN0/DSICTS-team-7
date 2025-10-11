@@ -1,3 +1,5 @@
 psutil
 httpx
 pytubefix 
+pynvml
+locust

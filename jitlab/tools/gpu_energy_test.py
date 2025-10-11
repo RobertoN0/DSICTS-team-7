@@ -4,6 +4,7 @@ import threading
 import time
 import os
 import signal
+import csv
 
 # --- Configuration ---
 GPU_INDEX = 0
@@ -16,18 +17,24 @@ FFMPEG_PATH = "ffmpeg"
 # This command ensures all work is done on the GPU as much as possible.
 # NOTE: The '-c:v av1_nvenc' requires an NVIDIA GPU with AV1 NVENC support.
 FFMPEG_COMMAND = [
-    FFMPEG_PATH,
-    "-y",
+    FFMPEG_PATH, "-y",
     "-hwaccel", "cuda",
-    "-i", INPUT_FILE,
-    "-c:v", "av1_nvenc",
-    # "-c:v", "h264_nvenc",
-    "-preset", "p5",       # p1 (slowest/best) to p7 (fastest/worst)
-    # "-preset", "p5",       # p1 (slowest/best) to p7 (fastest/worst)
-    "-tune", "hq",         # high quality tuning
-    "-b:v", "5M",          # Target bitrate
-    "-c:a", "copy",
-    OUTPUT_FILE
+    "-hwaccel_output_format", "cuda",
+    "-i", "./videos/Milan.mp4",
+    "-filter_complex",
+    (
+        "[0:v]split=5[v1][v2][v3][v4][v5];"
+        "[v1]scale_cuda=-2:1080[v1o];"
+        "[v2]scale_cuda=-2:720[v2o];"
+        "[v3]scale_cuda=-2:480[v3o];"
+        "[v4]scale_cuda=-2:360[v4o];"
+        "[v5]scale_cuda=-2:240[v5o]"
+    ),
+    "-map", "[v1o]", "-c:v", "h264_nvenc", "-b:v", "6M", "-c:a", "aac", "-b:a", "128k", "Milan_1080p.mp4",
+    "-map", "[v2o]", "-c:v", "h264_nvenc", "-b:v", "3M", "-c:a", "aac", "-b:a", "128k", "Milan_720p.mp4",
+    "-map", "[v3o]", "-c:v", "h264_nvenc", "-b:v", "2M", "-c:a", "aac", "-b:a", "128k", "Milan_480p.mp4",
+    "-map", "[v4o]", "-c:v", "h264_nvenc", "-b:v", "1M", "-c:a", "aac", "-b:a", "96k", "Milan_360p.mp4",
+    "-map", "[v5o]", "-c:v", "h264_nvenc", "-b:v", "0.6M", "-c:a", "aac", "-b:a", "64k", "Milan_240p.mp4"
 ]
 
 # List to store monitoring data
@@ -116,9 +123,9 @@ def run_ffmpeg_encode(command):
         stop_monitoring.set()
 
 def main():
-    if not os.path.exists(INPUT_FILE):
-        print(f"Error: Input file '{INPUT_FILE}' not found. Please create it and run the script again.")
-        return
+    #if not os.path.exists(INPUT_FILE):
+    #    print(f"Error: Input file '{INPUT_FILE}' not found. Please create it and run the script again.")
+    #    return
 
     # Create and start the GPU monitoring thread
     monitor_thread = threading.Thread(target=monitor_gpu, args=(GPU_INDEX, 1))
@@ -151,12 +158,10 @@ def main():
     print("-" * 25)
     print(f"Data saved to 'monitoring_data' list for further analysis (e.g., plotting).")
     
-    # You can also save the data to a CSV file here for later plotting
-    # import csv
-    # with open('gpu_metrics.csv', 'w', newline='') as f:
-    #     writer = csv.DictWriter(f, fieldnames=monitoring_data[0].keys())
-    #     writer.writeheader()
-    #     writer.writerows(monitoring_data)
+    with open('gpu_metrics.csv', 'w', newline='') as f:
+         writer = csv.DictWriter(f, fieldnames=monitoring_data[0].keys())
+         writer.writeheader()
+         writer.writerows(monitoring_data)
 
 if __name__ == "__main__":
     main()
