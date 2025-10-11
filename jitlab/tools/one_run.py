@@ -23,8 +23,10 @@ import subprocess
 import sys
 import time
 import json
-
+import signal
 from typing import List
+import urllib.request
+import urllib.error
 
     
 PROFILE_FLAGS = {
@@ -79,6 +81,13 @@ def run():
     ts = datetime.now().strftime("%Y%m%d_%H%M%S")
     os.makedirs(args.outdir, exist_ok=True)
 
+    codec = args.codec or "unknown"
+    hardware = "gpu" if str(args.use_gpu).lower() == "true" else "cpu"
+    root_dir = os.path.join(args.outdir, f"{codec}-{hardware}")
+    os.makedirs(root_dir, exist_ok=True)
+    profile = args.profile or "baseline"
+    profile_dir = os.path.join(root_dir, f"{profile}_{ts}")
+    os.makedirs(profile_dir, exist_ok=True)
 
     ###########################################
                 ## Helper Functions ##
@@ -96,14 +105,9 @@ def run():
         if not wait_for_server():
             print("Server did not become ready in time; terminating.")
             raise RuntimeError("Server failed readiness check.")
-
-        print(f"Server ready (pid={proc.pid}).")
-        return proc.pid
+        return proc
 
     def wait_for_server() -> bool:
-        import urllib.request
-        import urllib.error
-
         url = args.host.rstrip("/") + "/ping"
         print(f"Waiting for server readiness at {url} (timeout={60}s)")
 
@@ -119,14 +123,27 @@ def run():
                 print(f"Readiness probe error: {exc}")
             time.sleep(1.0)
         return False
+    
+    def kill_server(proc):
+        """Terminate the started Java server gracefully."""
+        if not proc:
+            return
+        try:
+            os.killpg(os.getpgid(proc.pid), signal.SIGTERM)
+            proc.wait(timeout=5)
+            print(f"[one_run] Server PID {proc.pid} terminated.")
+        except subprocess.TimeoutExpired:
+            print(f"[one_run] Server did not exit in time — forcing kill.")
+            os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+        except ProcessLookupError:
+            pass
 
-    def helper_cleanup(server_pid, monitor_pid) -> None:
+
+    def helper_cleanup(monitor_pid) -> None:
         try:
             # Kill any ffmpeg process still running
             print("[one_run] Killing any ffmpeg processes...")
             subprocess.run(["pkill", "-9", "ffmpeg"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-
-            subprocess.run(["pkill", f"server_pid={server_pid}"])
             subprocess.run(["pkill", f"monitor_pid={monitor_pid}"])
             
             # Delete and recreate videos/tmp directory
@@ -143,11 +160,13 @@ def run():
 
     for i in range(args.numberOfRepetitions):
         ts_i = f"{ts}_r{i+1}"
+        iter_dir = os.path.join(profile_dir, f"iter_{i+1}")
+        os.makedirs(iter_dir, exist_ok=True)
         #############################################
         ## Cool down after warmup and previous run ##
         #############################################
         print(f"[one_run] Starting experiment iteration {i + 1}…")
-        if args.timeout > 0:
+        if args.timeout > 0 and i > 0:
             time.sleep(args.timeout)
 
         server_pid = None
@@ -156,34 +175,56 @@ def run():
             ###########################################
                         ## Server setup ##
             ###########################################
-            server_pid = start_server()
-            print(f"[one_run] Using server PID: {server_pid}")
+            server_proc = start_server()
+            server_pid = server_proc.pid
+            print(f"[one_run] Using server PID: {server_proc.pid}")
 
             ############################################
-                        ## Warmup phase ##
+            ## Warmup phase ##
             ############################################
-            if args.warmupSec > 0:
-                print(f"[one_run] Starting warmup phase for {args.warmupSec} seconds…")
-                warmup_body = json.dumps({"iterations": 2000, "payloadSize": 20000})
-                warmup_cmd = [python_bin, load_py,
-                    "--url", args.host,
-                    "--runSec", str(args.warmupSec),
-                    "--body", warmup_body,
-                ]
-                print("[one_run] START warmup:", " ".join(shlex.quote(x) for x in warmup_cmd))
-                try:
-                    ret = subprocess.run(warmup_cmd).returncode
-                except FileNotFoundError:
-                    print("[one_run] Python interpreter not found for warmup.", file=sys.stderr)
-                    sys.exit(2)
-                print(f"[one_run] Warmup exited with code {ret}")
-                if ret != 0:
-                    print("[one_run] Warmup returned non-zero exit code.")
+            if args.warmupSec > 0 and i == 0:
+                if args.use_gpu.lower() == "true":
+                    # --- GPU warmup
+                    print(f"[one_run] Starting GPU warmup for {args.warmupSec} seconds…")
+                    gpu_warmup = subprocess.run([
+                        "ffmpeg",
+                        "-v", "quiet",
+                        "-f", "lavfi",
+                        "-i", f"testsrc=duration={args.warmupSec}:size=1280x720:rate=30",
+                        "-c:v", "h264_nvenc",
+                        "-preset", "fast",
+                        "-f", "null", "-"
+                    ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+                    if gpu_warmup.returncode != 0:
+                        print("[one_run] GPU warmup via ffmpeg failed.", file=sys.stderr)
+                    else:
+                        print("[one_run] GPU warmup done.")
+                else:
+                    # --- CPU warmup: synthetic load via /work/cpu
+                    print(f"[one_run] Starting CPU warmup phase for {args.warmupSec} seconds…")
+                    warmup_body = json.dumps({"iterations": 2000, "payloadSize": 20000})
+                    warmup_cmd = [
+                        python_bin, load_py,
+                        "--url", args.host.rstrip("/") + "/work/cpu",
+                        "--runSec", str(args.warmupSec),
+                        "--concurrency", "1",
+                        "--body", warmup_body,
+                        "--no-save"
+                    ]
+                    print("[one_run] START warmup:", " ".join(shlex.quote(x) for x in warmup_cmd))
+                    try:
+                        ret = subprocess.run(warmup_cmd).returncode
+                    except FileNotFoundError:
+                        print("[one_run] Python interpreter not found for warmup.", file=sys.stderr)
+                        sys.exit(2)
+                    print(f"[one_run] Warmup exited with code {ret}")
+
 
             ###########################################
                         ## Monitor Start ##
             ###########################################
-            mon_csv = os.path.join(args.outdir, f"monitor_{ts_i}.csv")
+            mon_csv = os.path.join(iter_dir, "monitor_iter.csv")
             duration = args.runSec + 5
             mon_cmd = [python_bin, "tools/monitor.py",
                 "--pid", str(server_pid),
@@ -198,7 +239,7 @@ def run():
             gpu_p = None
             gpu_csv = None
             if args.use_gpu == "true":
-                gpu_csv = os.path.join(args.outdir, f"gpu_monitor_{ts_i}.csv")
+                gpu_csv = os.path.join(iter_dir, "gpu_monitor_iter.csv")
                 gpu_cmd = [
                     "python3", "tools/gpu_monitor.py",                
                     "--duration", str(duration),        
@@ -215,6 +256,7 @@ def run():
                 "-r", str(max(1, args.spawn_rate)),
                 "-t", f"{args.runSec}s",
                 "--host", args.host,
+                "--loglevel", "CRITICAL"
             #   "--csv", locust_prefix,
             ]
 
@@ -232,7 +274,12 @@ def run():
                 env["LOCUST_USE_GPU"] = str(args.use_gpu)
 
             try:
-                ret = subprocess.run(locust_cmd, env=env).returncode
+                ret = subprocess.run(
+                    locust_cmd,
+                    env=env,
+                    stdout=subprocess.DEVNULL, 
+                    stderr=subprocess.DEVNULL  
+                ).returncode
             except FileNotFoundError:
                 print("[one_run] 'locust' not found. Try activating the virtualenv or install locust in system PATH.", file=sys.stderr)
                 sys.exit(2)
@@ -269,11 +316,12 @@ def run():
                     except subprocess.TimeoutExpired:
                         gpu_p.kill()
         finally:
-            helper_cleanup(server_pid, mon_p.pid if mon_p else None)
+            kill_server(server_proc)
+            helper_cleanup(mon_p.pid if mon_p else None)
 
     print("\n✅ Done.")
     #print(f"Locust CSV prefix: {locust_prefix}*")
-    print(f"Monitor CSV:       {mon_csv}")
+    print(f"Outputs saved under: {profile_dir}")
 
 
 if __name__ == "__main__":

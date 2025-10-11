@@ -18,7 +18,7 @@ if [ ! -f "$ONE_RUN_SCRIPT" ]; then
 fi
 
 # Profiles to run (in order)
-PROFILES=(baseline c2-only c1-only) # interpret low-threshold single-compiler heap
+PROFILES=(baseline c2-only interpret low-threshold) #  c1-only single-compiler heap
 
 # Build once up-front (fail fast if build fails)
 echo "[run_profiles] Building project once via Maven..."
@@ -40,10 +40,8 @@ TS="$(date +%Y%m%d_%H%M%S)"
 echo "[run_profiles] Starting experiment batch: $TS"
 
 for p in "${PROFILES[@]}"; do
-  outdir="runs/${p}_${TS}"
-  mkdir -p "$outdir"
-
-  echo "\n[run_profiles] Running profile: $p -> outdir=$outdir"
+  outdir="runs"  # lascia che sia one_run.py a creare le sottocartelle
+  echo "\n[run_profiles] Running profile: $p"
 
   # Ensure we forward an explicit --outdir per-profile so one_run writes there
   args=("${FORWARD_ARGS[@]}")
