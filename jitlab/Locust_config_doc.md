@@ -35,4 +35,4 @@ TODO:
 - Script plot: aggregation of data between iterations
 - Check overall functioning of one_run
 - Check sudo configuration
-
+- pkill java to kill server after each iteration
