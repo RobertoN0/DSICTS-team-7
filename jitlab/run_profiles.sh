@@ -2,18 +2,18 @@
 set -euo pipefail
 
 # run_profiles.sh
-# Iterate JVM profiles and run the existing run.sh for each profile,
-# saving outputs into per-profile subfolders under runs/.
+# Iterate JVM profiles and run one_run.py for each profile, saving outputs
+# into per-profile subfolders under runs/.
 # Usage: ./run_profiles.sh [--] [one_run.py args]
 # Example:
 #   ./run_profiles.sh -- --monitor-sudo --runSec 30 --timeout 5 --numberOfRepetitions 1 --warmupSec 0 --codec h264 --resolution 480 --use-gpu false
 
 ROOT_DIR="$(cd "$(dirname "$0")" && pwd)"
-RUN_SCRIPT="$ROOT_DIR/run.sh"
+ONE_RUN_SCRIPT="$ROOT_DIR/tools/one_run.py"
 JAR_FILE="$ROOT_DIR/target/jitlab-0.0.1-SNAPSHOT.jar"
 
-if [ ! -x "$RUN_SCRIPT" ]; then
-  echo "Existing run script not found or not executable: $RUN_SCRIPT" >&2
+if [ ! -f "$ONE_RUN_SCRIPT" ]; then
+  echo "[run_profiles] one_run.py not found at $ONE_RUN_SCRIPT" >&2
   exit 1
 fi
 
@@ -66,13 +66,19 @@ for p in "${PROFILES[@]}"; do
     newargs+=("$a")
   done
 
-  # Append our per-profile outdir
+  # Append helper-specific args
   newargs+=("--outdir" "$outdir")
+  newargs+=("--profile" "$p")
 
-  # Run the existing run.sh which will build/start the server and call one_run.py
-  # We set SKIP_BUILD=1 so run.sh will not invoke Maven again.
-  echo "[run_profiles] Command: SKIP_BUILD=1 $RUN_SCRIPT $p -- ${newargs[*]}"
-  SKIP_BUILD=1 "$RUN_SCRIPT" "$p" -- "${newargs[@]}"
+  # Invoke one_run directly. Python path from env to allow venv usage.
+  PYTHON_BIN="$(command -v python3 || true)"
+  if [ -z "$PYTHON_BIN" ]; then
+    echo "[run_profiles] python3 not found in PATH" >&2
+    exit 3
+  fi
+
+  echo "[run_profiles] Command: $PYTHON_BIN $ONE_RUN_SCRIPT ${newargs[*]}"
+  "$PYTHON_BIN" "$ONE_RUN_SCRIPT" "${newargs[@]}"
 
   echo "[run_profiles] Completed profile: $p"
 done
