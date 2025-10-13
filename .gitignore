@@ -3,6 +3,7 @@ runs/
 target/
 virenv/
 venve
+__pycache__/
 energibridge
 LibreHardwareMonitor.sys
 get_context.sh

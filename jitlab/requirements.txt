@@ -3,3 +3,6 @@ httpx
 pytubefix 
 pynvml
 locust
+pandas
+matplotlib
+numpy
