@@ -40,7 +40,7 @@ TS="$(date +%Y%m%d_%H%M%S)"
 echo "[run_profiles] Starting experiment batch: $TS"
 
 for p in "${PROFILES[@]}"; do
-  outdir="runs"  # lascia che sia one_run.py a creare le sottocartelle
+  outdir="runs"  # let one_run.py create subdirectories
   echo "\n[run_profiles] Running profile: $p"
 
   # Ensure we forward an explicit --outdir per-profile so one_run writes there

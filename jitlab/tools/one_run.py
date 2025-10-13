@@ -152,14 +152,50 @@ def run():
         except Exception as e:
             print(f"[one_run] Cleanup failed: {e}", file=sys.stderr)
 
+    def warmup(warmupSec: int, use_gpu: bool) -> None:
+        if warmupSec > 0:
+            if use_gpu:
+                # --- GPU warmup
+                print(f"[one_run] Starting GPU warmup for {warmupSec} seconds…")
+                gpu_warmup = subprocess.run([
+                    "ffmpeg",
+                    "-v", "quiet",
+                    "-f", "lavfi",
+                    "-i", f"testsrc=duration={warmupSec}:size=1280x720:rate=30",
+                    "-c:v", "hevc_nvenc",
+                    "-preset", "fast",
+                    "-f", "null", "-"
+                ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+                if gpu_warmup.returncode != 0:
+                    print("[one_run] GPU warmup via ffmpeg failed.", file=sys.stderr)
+                else:
+                    print("[one_run] GPU warmup done.")
+            else:
+                # --- CPU warmup: synthetic load via /work/cpu
+                print(f"[one_run] Starting CPU warmup phase for {warmupSec} seconds…")
+                load_py = os.path.join(os.path.dirname(__file__), "load_py.py")
+                warmup_body = json.dumps({"iterations": 2000, "payloadSize": 20000})
+                warmup_cmd = [
+                    python_bin, load_py,
+                    "--url", args.host.rstrip("/") + "/work/cpu",
+                    "--runSec", str(warmupSec),
+                    "--body", warmup_body,
+                    "--no-save"
+                ]
+                print("[one_run] START warmup:", " ".join(shlex.quote(x) for x in warmup_cmd))
+                try:
+                    ret = subprocess.run(warmup_cmd).returncode
+                except FileNotFoundError:
+                    print("[one_run] Python interpreter not found for warmup.", file=sys.stderr)
+                    sys.exit(2)
+                print(f"[one_run] Warmup exited with code {ret}")
+
 
     ############################################
                 ## Experiment Loop ##
     ############################################
-    load_py = os.path.join(os.path.dirname(__file__), "load_py.py")
-
     for i in range(args.numberOfRepetitions):
-        ts_i = f"{ts}_r{i+1}"
         iter_dir = os.path.join(profile_dir, f"iter_{i+1}")
         os.makedirs(iter_dir, exist_ok=True)
         #############################################
@@ -180,45 +216,14 @@ def run():
             print(f"[one_run] Using server PID: {server_proc.pid}")
 
             ############################################
-            ## Warmup phase ##
+                        ## Warmup Start ##
             ############################################
             if args.warmupSec > 0 and i == 0:
-                if args.use_gpu.lower() == "true":
-                    # --- GPU warmup
-                    print(f"[one_run] Starting GPU warmup for {args.warmupSec} seconds…")
-                    gpu_warmup = subprocess.run([
-                        "ffmpeg",
-                        "-v", "quiet",
-                        "-f", "lavfi",
-                        "-i", f"testsrc=duration={args.warmupSec}:size=1280x720:rate=30",
-                        "-c:v", "hevc_nvenc",
-                        "-preset", "fast",
-                        "-f", "null", "-"
-                    ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-
-                    if gpu_warmup.returncode != 0:
-                        print("[one_run] GPU warmup via ffmpeg failed.", file=sys.stderr)
-                    else:
-                        print("[one_run] GPU warmup done.")
-                else:
-                    # --- CPU warmup: synthetic load via /work/cpu
-                    print(f"[one_run] Starting CPU warmup phase for {args.warmupSec} seconds…")
-                    warmup_body = json.dumps({"iterations": 2000, "payloadSize": 20000})
-                    warmup_cmd = [
-                        python_bin, load_py,
-                        "--url", args.host.rstrip("/") + "/work/cpu",
-                        "--runSec", str(args.warmupSec),
-                        "--body", warmup_body,
-                        "--no-save"
-                    ]
-                    print("[one_run] START warmup:", " ".join(shlex.quote(x) for x in warmup_cmd))
-                    try:
-                        ret = subprocess.run(warmup_cmd).returncode
-                    except FileNotFoundError:
-                        print("[one_run] Python interpreter not found for warmup.", file=sys.stderr)
-                        sys.exit(2)
-                    print(f"[one_run] Warmup exited with code {ret}")
-
+                use_gpu = str(args.use_gpu).lower() == "true"
+                warmup(args.warmupSec, use_gpu)
+                if args.timeout > 0:
+                    print(f"[one_run] Cooldown after warmup for {args.timeout} seconds…")
+                    time.sleep(args.timeout)
 
             ###########################################
                         ## Monitor Start ##
@@ -246,6 +251,7 @@ def run():
                 ]
                 print("[one_run] START gpu_monitor:", " ".join(shlex.quote(x) for x in gpu_cmd))
                 gpu_p = subprocess.Popen(gpu_cmd, stdout=sys.stdout, stderr=sys.stderr)
+
             ###########################################
                 ## Locust encode stress test  ##
             ###########################################
