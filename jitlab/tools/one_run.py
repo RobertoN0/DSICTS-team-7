@@ -191,7 +191,7 @@ def run():
                         "-v", "quiet",
                         "-f", "lavfi",
                         "-i", f"testsrc=duration={args.warmupSec}:size=1280x720:rate=30",
-                        "-c:v", "h264_nvenc",
+                        "-c:v", "hevc_nvenc",
                         "-preset", "fast",
                         "-f", "null", "-"
                     ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
@@ -208,7 +208,6 @@ def run():
                         python_bin, load_py,
                         "--url", args.host.rstrip("/") + "/work/cpu",
                         "--runSec", str(args.warmupSec),
-                        "--concurrency", "1",
                         "--body", warmup_body,
                         "--no-save"
                     ]
