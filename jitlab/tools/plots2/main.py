@@ -4,7 +4,7 @@ import os, glob
 import pandas as pd
 
 CANONICAL_MEM_UNIT = "MiB"   # or "MB"
-PROFILES_ORDER = ['baseline', 'c2-only', 'interpret', 'low-threshold']
+PROFILES_ORDER = ['baseline', 'c1-only','c2-only', 'heap', 'interpret', 'low-threshold', 'double-thread']
 
 from .io_utils import average_csv_files, merge_dataframes
 from .plot_single import generate_single_experiment_plots

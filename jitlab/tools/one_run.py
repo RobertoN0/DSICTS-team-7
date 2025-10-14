@@ -35,7 +35,7 @@ PROFILE_FLAGS = {
     "c2-only": ["-XX:-TieredCompilation"],
     "c1-only": ["-XX:+TieredCompilation", "-XX:TieredStopAtLevel=1"],
     "low-threshold": ["-XX:CompileThreshold=1000"],
-    "single-compiler": ["-XX:CICompilerCount=1"],
+    "double-thread": ["-XX:CICompilerCount=2"],
     "heap": ["-Xms1g", "-Xmx1g"],
 }
 
@@ -154,23 +154,42 @@ def run():
 
     def warmup(warmupSec: int, use_gpu: bool) -> None:
         if warmupSec > 0:
+            
             if use_gpu:
-                # --- GPU warmup
                 print(f"[one_run] Starting GPU warmup for {warmupSec} seconds…")
+
+                sample_video = os.path.join(videos_tmp, "warmup_sample.mp4")
+                if not os.path.isfile(sample_video):
+                    print("[one_run] Creating temporary warmup video (CPU-generated pattern)...")
+                    subprocess.run([
+                        "ffmpeg", "-v", "error", "-f", "lavfi",
+                        "-i", "testsrc=duration=10:size=1920x1080:rate=30",
+                        "-c:v", "libx264", "-pix_fmt", "yuv420p",
+                        sample_video
+                    ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+                
+
+                # Run warmup encoding on GPU for the specified time
                 gpu_warmup = subprocess.run([
                     "ffmpeg",
-                    "-v", "quiet",
+                    "-hwaccel", "cuda",
+                    "-stream_loop", "-1",
+                    "-re",
+                    "-t", str(warmupSec),
                     "-f", "lavfi",
-                    "-i", f"testsrc=duration={warmupSec}:size=1280x720:rate=30",
-                    "-c:v", "hevc_nvenc",
-                    "-preset", "fast",
+                    "-i", "testsrc=size=3840x2160:rate=60",
+                    "-vf", "format=yuv420p,hwupload_cuda",
+                    "-c:v", "av1_nvenc",
+                    "-preset", "p5",
+                    "-b:v", "5M",
                     "-f", "null", "-"
-                ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                ])
 
-                if gpu_warmup.returncode != 0:
-                    print("[one_run] GPU warmup via ffmpeg failed.", file=sys.stderr)
+                if gpu_warmup.returncode == 0:
+                    print("[one_run] GPU warmup complete ✅")
                 else:
-                    print("[one_run] GPU warmup done.")
+                    print("[one_run] GPU warmup failed ❌", file=sys.stderr)
             else:
                 # --- CPU warmup: synthetic load via /work/cpu
                 print(f"[one_run] Starting CPU warmup phase for {warmupSec} seconds…")

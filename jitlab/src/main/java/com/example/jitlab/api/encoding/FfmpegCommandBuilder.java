@@ -41,7 +41,7 @@ public class FfmpegCommandBuilder {
         cmd.add(gpu ? "p5" : "veryfast");
 
         // Rough bitrate per target resolution
-        String res = resolution.replace("p", "");
+        String res = resolution.replace("p", "");   
         String bitrate = switch (res) {
             case "1080" -> "6M";
             case "720" -> "3M";

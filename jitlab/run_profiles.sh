@@ -18,8 +18,8 @@ if [ ! -f "$ONE_RUN_SCRIPT" ]; then
 fi
 
 # Profiles to run (in order)
-PROFILES=(baseline c2-only interpret low-threshold) #  c1-only single-compiler heap
-
+#PROFILES=(baseline c2-only interpret low-threshold) #  c1-only single-compiler heap
+PROFILES=(double-thread c1-only heap)
 # Build once up-front (fail fast if build fails)
 echo "[run_profiles] Building project once via Maven..."
 (cd "$ROOT_DIR" && mvn clean package -DskipTests)

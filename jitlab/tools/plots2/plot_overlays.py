@@ -70,6 +70,48 @@ def generate_experiment_overlays(exp_name, profiles_map, exp_out_dir, profiles_o
         plt.savefig(os.path.join(exp_out_dir, f'{exp_name}_overlay_total_power.png'), dpi=150)
         plt.close()
 
+        
+        # Energy per second overlay (instantaneous energy rate)
+    plt.figure(figsize=(12, 7))
+    for p in ordered_profiles:
+        merged_df = profiles_map[p][0].copy()
+        merged_df['ts'] = to_datetime_series(merged_df['ts'])
+        merged_df = merged_df.sort_values('ts').reset_index(drop=True)
+        t0 = merged_df['ts'].min()
+        merged_df['time_s'] = (merged_df['ts'] - t0).dt.total_seconds()
+
+        # Pick appropriate energy column
+        if 'energy_j_total_cpu' in merged_df.columns:
+            energy_col = 'energy_j_total_cpu'
+        elif 'energy_j_total' in merged_df.columns:
+            energy_col = 'energy_j_total'
+        else:
+            continue  # skip if no energy data
+
+        # Compute derivative: Joules per second ≈ ΔE / Δt
+        merged_df['energy_per_s'] = merged_df[energy_col].diff() / merged_df['time_s'].diff()
+
+        # Optional: smooth a bit to remove sampling noise
+        merged_df['energy_per_s'] = merged_df['energy_per_s'].rolling(window=3, min_periods=1).mean()
+
+        plt.plot(
+            merged_df['time_s'],
+            merged_df['energy_per_s'],
+            label=p,
+            linewidth=2
+        )
+
+    plt.title(f'{exp_name} - Instantaneous Energy Usage (J/s) Over Time (All Profiles)')
+    plt.xlabel('Time (seconds)')
+    plt.ylabel('Energy per second (J/s)')
+    plt.xlim(left=0)
+    plt.legend()
+    plt.grid(True, alpha=0.3)
+    plt.tight_layout()
+    plt.savefig(os.path.join(exp_out_dir, f'{exp_name}_overlay_energy_per_second.png'), dpi=150)
+    plt.close()
+
+
     # CPU memory overlay
     plt.figure(figsize=(12, 7))
     for p in ordered_profiles:
