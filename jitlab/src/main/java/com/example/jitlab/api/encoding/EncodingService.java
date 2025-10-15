@@ -18,7 +18,9 @@ public class EncodingService {
         Path tmpDir = projectRoot.resolve("videos/tmp");
         Files.createDirectories(tmpDir);
 
-        Path inputFile = tmpDir.resolve("input_" + System.currentTimeMillis() + ".mp4");
+        //Path inputFile = tmpDir.resolve("input_" + System.currentTimeMillis() + ".mp4");
+        String timestamp = String.valueOf(System.currentTimeMillis());
+        Path inputFile = Files.createTempFile("input_" + timestamp + "_", ".mp4");
         file.transferTo(inputFile.toFile());
 
         Path outputFile = tmpDir.resolve(
@@ -64,7 +66,9 @@ public class EncodingService {
         Path tmpDir = projectRoot.resolve("videos/tmp");
         Files.createDirectories(tmpDir);
 
-        Path inputFile = tmpDir.resolve("multi_input_" + System.currentTimeMillis() + ".mp4");
+        //Path inputFile = tmpDir.resolve("multi_input_" + System.currentTimeMillis() + ".mp4");
+        String timestamp = String.valueOf(System.currentTimeMillis());
+        Path inputFile = Files.createTempFile("multi_input_" + timestamp + "_", ".mp4");
         file.transferTo(inputFile.toFile());
 
         String baseOutput = tmpDir.resolve("encoded_multi_" + System.currentTimeMillis() + ".mp4").toString();
