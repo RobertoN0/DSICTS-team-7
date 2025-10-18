@@ -20,6 +20,7 @@ Example:
 
 import argparse
 import os
+import shlex
 import subprocess
 import sys
 import time
@@ -238,20 +239,40 @@ def run():
             print("[one_run] START monitor:", " ".join(mon_cmd))
             mon_proc = subprocess.Popen(mon_cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
+            gpu_p = None
+            gpu_csv = None
+            if args.use_gpu == "true":
+                gpu_csv = os.path.join(iter_dir, "gpu_monitor_iter.csv")
+                gpu_cmd = [
+                    "python3", "tools/gpu_monitor.py",                
+                    "--duration", str(99999),        
+                    "--out", gpu_csv
+                ]
+                print("[one_run] START gpu_monitor:", " ".join(shlex.quote(x) for x in gpu_cmd))
+                gpu_p = subprocess.Popen(gpu_cmd, stdout=sys.stdout, stderr=sys.stderr)
+
             # Wait for FFmpeg to finish
             ffmpeg_proc.wait()
             print("[one_run] FFmpeg finished.")
 
             # Stop monitor
-            deadline = time.time() + 10
-            while mon_proc.poll() is None and time.time() < deadline:
+            while ffmpeg_proc.poll() is None:
                 time.sleep(0.2)
-            if mon_proc.poll() is None:
+            if ffmpeg_proc.poll() is None:
                 mon_proc.terminate()
                 try:
                     mon_proc.wait(timeout=5)
                 except subprocess.TimeoutExpired:
                     mon_proc.kill()
+            if gpu_p:
+                while ffmpeg_proc.poll() is None:
+                    time.sleep(0.2)
+                if ffmpeg_proc.poll() is None:
+                    gpu_p.terminate()
+                    try:
+                        gpu_p.wait(timeout=5)
+                    except subprocess.TimeoutExpired:
+                        gpu_p.kill()
 
         finally:
             kill_process(ffmpeg_proc, "ffmpeg")

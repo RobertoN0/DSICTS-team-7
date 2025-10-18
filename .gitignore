@@ -1,5 +1,5 @@
 .vscode/
-runs/
+runs*/
 target/
 virenv/
 venve

@@ -19,7 +19,11 @@ fi
 
 # Profiles to run (in order)
 #PROFILES=(baseline c2-only interpret low-threshold) #  c1-only single-compiler heap
-PROFILES=(double-thread c1-only heap)
+PROFILES=(baseline interpret c1-only c2-only low-threshold double-thread heap)
+
+if [ -n "${RUN_PROFILES_FILTER:-}" ]; then
+  IFS=',' read -r -a PROFILES <<< "$RUN_PROFILES_FILTER"
+fi
 # Build once up-front (fail fast if build fails)
 echo "[run_profiles] Building project once via Maven..."
 (cd "$ROOT_DIR" && mvn clean package -DskipTests)

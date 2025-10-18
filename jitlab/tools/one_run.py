@@ -59,7 +59,7 @@ def run():
     ap.add_argument("--warmupSec", type=int, default=0, help="Duration of the warmup phase in seconds (default: 0, no warmup)")
     ap.add_argument("--numberOfRepetitions", type=int, default=30, help="Number of times to repeat the test (default: 30)")
     ap.add_argument("--locustfile", default="tools/locustfile_encode.py", help="Locustfile to run")
-    ap.add_argument("--users", type=int, default=5, help="Number of Locust users (virtual users)")
+    ap.add_argument("--users", type=int, default=3, help="Number of Locust users (virtual users)")
     ap.add_argument("--spawn-rate", type=int, default=1, help="Locust spawn rate (users/sec)")
     ap.add_argument("--profile", default=None, help="Profile name used by build/cleanup helper")
     ap.add_argument("--codec", default=None, help="Codec to pass to locustfile (e.g. h264)")

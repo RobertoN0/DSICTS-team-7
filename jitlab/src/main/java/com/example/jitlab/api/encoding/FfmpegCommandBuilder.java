@@ -122,7 +122,7 @@ public class FfmpegCommandBuilder {
             cmd.add(encoder);
             if (gpu) {
                 cmd.add("-preset");
-                cmd.add("p5");
+                cmd.add("hq");
             } else {
                 cmd.add("-preset");
                 cmd.add("veryfast");
