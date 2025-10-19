@@ -1,5 +1,6 @@
 import os
 import matplotlib.pyplot as plt
+import numpy as np
 from .io_utils import (
     to_datetime_series,
     unify_memory_units_cpu,
@@ -14,7 +15,7 @@ def generate_experiment_overlays(exp_name, profiles_map, exp_out_dir, profiles_o
       - CPU Power
       - GPU Power (if GPU experiment)
       - Total Power (if GPU experiment)
-      - CPU RAM (all profiles)
+      - CPU RAM
       - GPU VRAM (if GPU experiment)
       - Summary table
     """
@@ -32,11 +33,11 @@ def generate_experiment_overlays(exp_name, profiles_map, exp_out_dir, profiles_o
         t0 = merged_df['ts'].min()
         merged_df['time_s'] = (merged_df['ts'] - t0).dt.total_seconds()
         if 'power_w_cpu' in merged_df.columns:
-            plt.plot(merged_df['time_s'], merged_df['power_w_cpu'], label=p, linewidth=2)
-    plt.title(f'{exp_name} - CPU Power Over Time (All Profiles)')
+            plt.plot(merged_df['time_s'][1:], merged_df['power_w_cpu'][1:], label=p, linewidth=2)
+    plt.title(f'CPU Power Over Time')
     plt.xlabel('Time (seconds)'); plt.ylabel('Power (W)'); plt.xlim(left=0)
     plt.legend(); plt.grid(True, alpha=0.3); plt.tight_layout()
-    plt.savefig(os.path.join(exp_out_dir, f'{exp_name}_overlay_cpu_power.png'), dpi=150)
+    plt.savefig(os.path.join(exp_out_dir, f'overlay_cpu_power.png'), dpi=150)
     plt.close()
 
     # GPU Power overlay
@@ -48,11 +49,11 @@ def generate_experiment_overlays(exp_name, profiles_map, exp_out_dir, profiles_o
             t0 = merged_df['ts'].min()
             merged_df['time_s'] = (merged_df['ts'] - t0).dt.total_seconds()
             if 'power_w_gpu' in merged_df.columns:
-                plt.plot(merged_df['time_s'], merged_df['power_w_gpu'], label=p, linewidth=2)
-        plt.title(f'{exp_name} - GPU Power Over Time (All Profiles)')
+                plt.plot(merged_df['time_s'][1:], merged_df['power_w_gpu'][1:], label=p, linewidth=2)
+        plt.title(f'GPU Power Over Time')
         plt.xlabel('Time (seconds)'); plt.ylabel('Power (W)'); plt.xlim(left=0)
         plt.legend(); plt.grid(True, alpha=0.3); plt.tight_layout()
-        plt.savefig(os.path.join(exp_out_dir, f'{exp_name}_overlay_gpu_power.png'), dpi=150)
+        plt.savefig(os.path.join(exp_out_dir, f'overlay_gpu_power.png'), dpi=150)
         plt.close()
 
         # Total Power overlay
@@ -63,54 +64,12 @@ def generate_experiment_overlays(exp_name, profiles_map, exp_out_dir, profiles_o
             t0 = merged_df['ts'].min()
             merged_df['time_s'] = (merged_df['ts'] - t0).dt.total_seconds()
             if 'total_power_w' in merged_df.columns:
-                plt.plot(merged_df['time_s'], merged_df['total_power_w'], label=p, linewidth=2)
-        plt.title(f'{exp_name} - Total Power Over Time (All Profiles)')
+                plt.plot(merged_df['time_s'][1:], merged_df['total_power_w'][1:], label=p, linewidth=2)
+        plt.title(f'Total Power Over Time')
         plt.xlabel('Time (seconds)'); plt.ylabel('Power (W)'); plt.xlim(left=0)
         plt.legend(); plt.grid(True, alpha=0.3); plt.tight_layout()
-        plt.savefig(os.path.join(exp_out_dir, f'{exp_name}_overlay_total_power.png'), dpi=150)
+        plt.savefig(os.path.join(exp_out_dir, f'overlay_total_power.png'), dpi=150)
         plt.close()
-
-        
-        # Energy per second overlay (instantaneous energy rate)
-    plt.figure(figsize=(12, 7))
-    for p in ordered_profiles:
-        merged_df = profiles_map[p][0].copy()
-        merged_df['ts'] = to_datetime_series(merged_df['ts'])
-        merged_df = merged_df.sort_values('ts').reset_index(drop=True)
-        t0 = merged_df['ts'].min()
-        merged_df['time_s'] = (merged_df['ts'] - t0).dt.total_seconds()
-
-        # Pick appropriate energy column
-        if 'energy_j_total_cpu' in merged_df.columns:
-            energy_col = 'energy_j_total_cpu'
-        elif 'energy_j_total' in merged_df.columns:
-            energy_col = 'energy_j_total'
-        else:
-            continue  # skip if no energy data
-
-        # Compute derivative: Joules per second ≈ ΔE / Δt
-        merged_df['energy_per_s'] = merged_df[energy_col].diff() / merged_df['time_s'].diff()
-
-        # Optional: smooth a bit to remove sampling noise
-        merged_df['energy_per_s'] = merged_df['energy_per_s'].rolling(window=3, min_periods=1).mean()
-
-        plt.plot(
-            merged_df['time_s'],
-            merged_df['energy_per_s'],
-            label=p,
-            linewidth=2
-        )
-
-    plt.title(f'{exp_name} - Instantaneous Energy Usage (J/s) Over Time (All Profiles)')
-    plt.xlabel('Time (seconds)')
-    plt.ylabel('Energy per second (J/s)')
-    plt.xlim(left=0)
-    plt.legend()
-    plt.grid(True, alpha=0.3)
-    plt.tight_layout()
-    plt.savefig(os.path.join(exp_out_dir, f'{exp_name}_overlay_energy_per_second.png'), dpi=150)
-    plt.close()
-
 
     # CPU memory overlay
     plt.figure(figsize=(12, 7))
@@ -123,10 +82,10 @@ def generate_experiment_overlays(exp_name, profiles_map, exp_out_dir, profiles_o
             if mem_col and mem_col in cpu_df.columns:
                 plt.plot((cpu_df['ts'] - t0).dt.total_seconds(), cpu_df[mem_col], label=p, linewidth=2)
     unit_label = canonical_mem_unit if canonical_mem_unit.lower() in ("mib", "mb") else "MB/MiB"
-    plt.title(f'{exp_name} - CPU Memory Over Time (All Profiles)')
+    plt.title(f'CPU Memory Over Time')
     plt.xlabel('Time (seconds)'); plt.ylabel(f'Memory ({unit_label})'); plt.xlim(left=0)
     plt.legend(); plt.grid(True, alpha=0.3); plt.tight_layout()
-    plt.savefig(os.path.join(exp_out_dir, f'{exp_name}_overlay_memory_cpu.png'), dpi=150)
+    plt.savefig(os.path.join(exp_out_dir, f'overlay_memory_cpu.png'), dpi=150)
     plt.close()
 
     # GPU memory overlay
@@ -144,14 +103,13 @@ def generate_experiment_overlays(exp_name, profiles_map, exp_out_dir, profiles_o
                 if gmem_col and gmem_col in gpu_df.columns:
                     plt.plot((gpu_df['ts'] - t0g).dt.total_seconds(), gpu_df[gmem_col], label=p, linewidth=2)
         unit_label = canonical_mem_unit if canonical_mem_unit.lower() in ("mib", "mb") else "MB/MiB"
-        plt.title(f'{exp_name} - GPU Memory Over Time (All Profiles)')
+        plt.title(f'GPU Memory Over Time')
         plt.xlabel('Time (seconds)'); plt.ylabel(f'Memory ({unit_label})'); plt.xlim(left=0)
         plt.legend(); plt.grid(True, alpha=0.3); plt.tight_layout()
-        plt.savefig(os.path.join(exp_out_dir, f'{exp_name}_overlay_memory_gpu.png'), dpi=150)
+        plt.savefig(os.path.join(exp_out_dir, f'overlay_memory_gpu.png'), dpi=150)
         plt.close()
 
     # Summary table for all profiles
-    import numpy as np
     fig, ax = plt.subplots(figsize=(14, 8))
     ax.axis('tight'); ax.axis('off')
 
@@ -187,14 +145,14 @@ def generate_experiment_overlays(exp_name, profiles_map, exp_out_dir, profiles_o
             avg_gpu_mem.append(np.nan)
 
     mem_unit = canonical_mem_unit if canonical_mem_unit.lower() in ("mib", "mb") else "MB/MiB"
-    table_data.append(['Total Energy (J)'] + [f"{x:.1f}" if not np.isnan(x) else '-' for x in tot_energy])
-    table_data.append(['CPU Energy (J)']   + [f"{x:.1f}" if not np.isnan(x) else '-' for x in cpu_energy])
-    table_data.append(['GPU Energy (J)']   + [f"{x:.1f}" if not np.isnan(x) else '-' for x in gpu_energy])
-    table_data.append(['Avg Total Power (W)'] + [f"{x:.2f}" if not np.isnan(x) else '-' for x in avg_total_power])
-    table_data.append(['Avg CPU Power (W)']   + [f"{x:.2f}" if not np.isnan(x) else '-' for x in avg_cpu_power])
-    table_data.append(['Avg GPU Power (W)']   + [f"{x:.2f}" if not np.isnan(x) else '-' for x in avg_gpu_power])
-    table_data.append([f'Avg CPU Mem ({mem_unit})'] + [f"{x:.1f}" if not np.isnan(x) else '-' for x in avg_cpu_mem])
-    table_data.append([f'Avg GPU Mem ({mem_unit})'] + [f"{x:.1f}" if not np.isnan(x) else '-' for x in avg_gpu_mem])
+    table_data.append(['Total Energy (J)'] + [f"{x:.3f}" if not np.isnan(x) else '-' for x in tot_energy])
+    table_data.append(['CPU Energy (J)']   + [f"{x:.3f}" if not np.isnan(x) else '-' for x in cpu_energy])
+    table_data.append(['GPU Energy (J)']   + [f"{x:.3f}" if not np.isnan(x) else '-' for x in gpu_energy])
+    table_data.append(['Avg Total Power (W)'] + [f"{x:.3f}" if not np.isnan(x) else '-' for x in avg_total_power])
+    table_data.append(['Avg CPU Power (W)']   + [f"{x:.3f}" if not np.isnan(x) else '-' for x in avg_cpu_power])
+    table_data.append(['Avg GPU Power (W)']   + [f"{x:.3f}" if not np.isnan(x) else '-' for x in avg_gpu_power])
+    table_data.append([f'Avg CPU Mem ({mem_unit})'] + [f"{x:.3f}" if not np.isnan(x) else '-' for x in avg_cpu_mem])
+    table_data.append([f'Avg GPU Mem ({mem_unit})'] + [f"{x:.3f}" if not np.isnan(x) else '-' for x in avg_gpu_mem])
 
     tbl = ax.table(cellText=table_data, cellLoc='center', loc='center',
                    colWidths=[0.25] + [0.75/len(ordered_profiles)]*len(ordered_profiles))
@@ -206,7 +164,7 @@ def generate_experiment_overlays(exp_name, profiles_map, exp_out_dir, profiles_o
             for j in range(len(header)):
                 tbl[(i, j)].set_facecolor('#ecf0f1')
 
-    plt.title(f'{exp_name} - Experiment Summary (All Profiles)', fontsize=14, weight='bold', pad=20)
+    plt.title(f'Experiment Summary', fontsize=14, weight='bold', pad=20)
     plt.tight_layout()
-    plt.savefig(os.path.join(exp_out_dir, f'{exp_name}_experiment_summary_table.png'), dpi=150, bbox_inches='tight')
+    plt.savefig(os.path.join(exp_out_dir, f'experiment_summary_table.png'), dpi=150, bbox_inches='tight')
     plt.close()

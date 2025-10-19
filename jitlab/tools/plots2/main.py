@@ -9,12 +9,10 @@ PROFILES_ORDER = ['baseline', 'c1-only','c2-only', 'heap', 'interpret', 'low-thr
 from .io_utils import average_csv_files, merge_dataframes
 from .plot_single import generate_single_experiment_plots
 from .plot_overlays import generate_experiment_overlays
-from .plot_cross_experiment import generate_cross_experiment_plots
-from .plot_cross_codec import generate_cross_codec_comparisons
 
 def main():
     ap = argparse.ArgumentParser(description='Generate plots from JITLab experiment runs')
-    ap.add_argument("--runs-dir", default="./runs-andrea",
+    ap.add_argument("--runs-dir", default="./results_h264gpu",
                     help="Root directory containing experiments like h264-cpu, h264-gpu, ...")
     ap.add_argument("--output-dir", default="./plots",
                     help="Output directory for plots")
@@ -64,32 +62,19 @@ def main():
                     avg_cpu_df = average_csv_files(cpu_files, file_type='CPU')
                     avg_gpu_df = average_csv_files(gpu_files, file_type='GPU')
                     merged_df = merge_dataframes(avg_cpu_df, avg_gpu_df, prof_key)
-
-                elif cpu_files and not gpu_files:
-                    # CPU-only experiment
-                    avg_cpu_df = average_csv_files(cpu_files, file_type='CPU')
-                    merged_df = avg_cpu_df.copy()
-                    rename_map = {}
-                    if 'power_w' in merged_df.columns:        rename_map['power_w'] = 'power_w_cpu'
-                    if 'energy_j_total' in merged_df.columns: rename_map['energy_j_total'] = 'energy_j_total_cpu'
-                    merged_df = merged_df.rename(columns=rename_map)
-                    if 'power_w_cpu' in merged_df.columns:
-                        merged_df['total_power_w'] = merged_df['power_w_cpu']
-                    avg_gpu_df = pd.DataFrame() 
-
                 else:
                     print(f"    --> SKIP: no CSV files found for {prof_dirname}")
                     continue
 
                 # Plots for profile
-                generate_single_experiment_plots(
-                    merged_df,
-                    avg_cpu_df,
-                    avg_gpu_df if not avg_gpu_df.empty else None,
-                    f"{exp_name} - {prof_dirname}",
-                    os.path.join(exp_out_dir, prof_dirname),
-                    CANONICAL_MEM_UNIT
-                )
+                #generate_single_experiment_plots(
+                #    merged_df,
+                #    avg_cpu_df,
+                #    avg_gpu_df if not avg_gpu_df.empty else None,
+                #    f"{exp_name} - {prof_dirname}",
+                #    os.path.join(exp_out_dir, prof_dirname),
+                #    CANONICAL_MEM_UNIT
+                #)
 
                 # Save for overlay & subsequent comparisons
                 experiments_map[exp_name][prof_key] = (
@@ -107,16 +92,6 @@ def main():
             exp_name, experiments_map[exp_name], exp_out_dir,
             PROFILES_ORDER, CANONICAL_MEM_UNIT
         )
-
-    # Comparison between CPU-only vs GPU for the SAME codec
-    generate_cross_experiment_plots(
-        experiments_map, args.output_dir, PROFILES_ORDER, CANONICAL_MEM_UNIT
-    )
-
-    # Comparison between codecs (GPU and CPU-only, baseline)
-    generate_cross_codec_comparisons(
-        experiments_map, args.output_dir, CANONICAL_MEM_UNIT
-    )
 
     print("\nAll plots generated successfully!")
 
