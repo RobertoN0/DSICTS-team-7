@@ -27,7 +27,7 @@ async def main():
     ap.add_argument("--runSec", type=int, default=120)
     ap.add_argument("--out", default="load_timeseries.csv")
     ap.add_argument("--timeout", type=float, default=300.0)
-    ap.add_argument("--no-save", action="store_true", help="Disable CSV output (useful for warmup)")  # 👈 nuova flag
+    ap.add_argument("--no-save", action="store_true", help="Disable CSV output (useful for warmup)")
     args = ap.parse_args()
 
     body = json.loads(args.body)

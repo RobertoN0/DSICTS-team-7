@@ -18,7 +18,6 @@ public class EncodingService {
         Path tmpDir = projectRoot.resolve("videos/tmp");
         Files.createDirectories(tmpDir);
 
-        //Path inputFile = tmpDir.resolve("input_" + System.currentTimeMillis() + ".mp4");
         String timestamp = String.valueOf(System.currentTimeMillis());
         Path inputFile = Files.createTempFile("input_" + timestamp + "_", ".mp4");
         file.transferTo(inputFile.toFile());
@@ -85,24 +84,11 @@ public class EncodingService {
         ProcessBuilder pb = new ProcessBuilder(command);
         pb.redirectErrorStream(true);
         Process proc = pb.start();
-            
-        //StringBuilder ffmpegOutput = new StringBuilder();
-        //try (var reader = new java.io.BufferedReader(new java.io.InputStreamReader(proc.getInputStream()))) {
-        //    String line;
-        //    while ((line = reader.readLine()) != null) {
-        //        ffmpegOutput.append(line).append("\n");
-        //    }
-        //}
 
         int exitCode = proc.waitFor();
         long elapsedMs = (System.nanoTime() - start) / 1_000_000;
 
         if (exitCode != 0) {
-            //System.err.println("==== FFmpeg command failed ====");
-            //System.err.println(String.join(" ", command));
-            //System.err.println("---- FFmpeg output ----");
-            //System.err.println(ffmpegOutput);
-            //System.err.println("------------------------");
             throw new RuntimeException("FFmpeg failed with exit code: " + exitCode);
         }
 

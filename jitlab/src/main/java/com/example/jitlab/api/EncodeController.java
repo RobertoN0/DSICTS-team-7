@@ -15,11 +15,13 @@ public class EncodeController {
 
     private final EncodingService encodingService;
 
+    /* Single-resolution encoding */
     @PostMapping(consumes = "multipart/form-data", produces = "application/json")
     public ResponseEntity<?> encodeVideo(
             @RequestPart("file") MultipartFile file,
             @ModelAttribute EncodingRequest request) {
         try {
+            // Process single-resolution encoding
             EncodingResult result = encodingService.encode(file, request);
             return ResponseEntity.ok(result);
         } catch (Exception e) {
@@ -28,11 +30,13 @@ public class EncodeController {
         }
     }
 
+    /* Multi-resolution encoding */
     @PostMapping(value = "/multi", consumes = "multipart/form-data", produces = "application/json")
     public ResponseEntity<?> encodeVideoMulti(
             @RequestPart("file") MultipartFile file,
             @ModelAttribute EncodingRequest request) {
         try {
+            // Process multi-resolution encoding
             var results = encodingService.encodeMulti(file, request);
             return ResponseEntity.ok(results);
         } catch (Exception e) {

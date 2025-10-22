@@ -107,7 +107,6 @@ public class FfmpegCommandBuilder {
                     .append(scaleCmd).append(toGenerate.get(i))
                     .append("[v").append(i + 1).append("o];");
         }
-
         cmd.add("-filter_complex");
         cmd.add(filter.toString());
 

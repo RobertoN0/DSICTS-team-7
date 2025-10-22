@@ -1,18 +1,4 @@
 #!/usr/bin/env python3
-"""one_run.py
-
-Canonical orchestrator: start the monitor for the server PID (or cmd substring),
-then run Locust headlessly with the provided locustfile. Writes monitor CSV and
-Locust CSV prefix into the output directory.
-
-Usage examples:
-  # simple headless Locust run with monitor
-  python3 tools/one_run.py --profile baseline --users 50 --spawn-rate 10 --runSec 120 --outdir runs --codec h264 --resolution 480 --use-gpu false
-
-Notes:
-  - The script shells out to `build_and_cleanup.py` (configurable via --build-script)
-    to start the server for each iteration and to perform post-run cleanup.
-"""
 
 from datetime import datetime
 import argparse
@@ -45,9 +31,6 @@ def _profile_flags(profile: str) -> List[str]:
     except KeyError as exc:
         raise ValueError(f"Unknown profile '{profile}'. Known: {', '.join(PROFILE_FLAGS)}") from exc
 
-    
-# Example usage command:
-# python3 tools/one_run.py --monitor-sudo  --runSec 300 --numberOfRepetitions 30 --timeout 60 --warmupSec 60 --users 1000 --spawn-rate 20
 
 def run():
     ap = argparse.ArgumentParser(description="Run monitor + headless Locust experiment")
@@ -154,10 +137,8 @@ def run():
 
     def warmup(warmupSec: int, use_gpu: bool) -> None:
         if warmupSec > 0:
-            
             if use_gpu:
                 print(f"[one_run] Starting GPU warmup for {warmupSec} seconds…")
-
                 sample_video = os.path.join(videos_tmp, "warmup_sample.mp4")
                 if not os.path.isfile(sample_video):
                     print("[one_run] Creating temporary warmup video (CPU-generated pattern)...")
@@ -167,8 +148,6 @@ def run():
                         "-c:v", "libx264", "-pix_fmt", "yuv420p",
                         sample_video
                     ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-
-                
 
                 # Run warmup encoding on GPU for the specified time
                 gpu_warmup = subprocess.run([
@@ -218,7 +197,7 @@ def run():
         iter_dir = os.path.join(profile_dir, f"iter_{i+1}")
         os.makedirs(iter_dir, exist_ok=True)
         #############################################
-        ## Cool down after warmup and previous run ##
+            ## Cool down after previous run ##
         #############################################
         print(f"[one_run] Starting experiment iteration {i + 1}…")
         if args.timeout > 0 and i > 0:
@@ -228,7 +207,7 @@ def run():
         mon_p = None
         try:
             ###########################################
-                        ## Server setup ##
+                        ## Server start up ##
             ###########################################
             server_proc = start_server()
             server_pid = server_proc.pid
@@ -344,7 +323,6 @@ def run():
             helper_cleanup(mon_p.pid if mon_p else None)
 
     print("\n✅ Done.")
-    #print(f"Locust CSV prefix: {locust_prefix}*")
     print(f"Outputs saved under: {profile_dir}")
 
 

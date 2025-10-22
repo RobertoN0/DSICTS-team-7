@@ -11,7 +11,7 @@ from .io_utils import (
 
 def generate_experiment_overlays(exp_name, profiles_map, exp_out_dir, profiles_order, canonical_mem_unit):
     """
-    Overlays between the 4 profiles of the same experiment:
+    Overlays between the profiles of the same experiment:
       - CPU Power
       - GPU Power (if GPU experiment)
       - Total Power (if GPU experiment)
@@ -40,8 +40,8 @@ def generate_experiment_overlays(exp_name, profiles_map, exp_out_dir, profiles_o
     plt.savefig(os.path.join(exp_out_dir, f'overlay_cpu_power.png'), dpi=150)
     plt.close()
 
-    # GPU Power overlay
     if is_gpu:
+        # GPU Power overlay
         plt.figure(figsize=(12, 7))
         for p in ordered_profiles:
             merged_df = profiles_map[p][0].copy()
