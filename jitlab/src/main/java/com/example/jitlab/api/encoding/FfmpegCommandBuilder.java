@@ -122,7 +122,11 @@ public class FfmpegCommandBuilder {
             cmd.add(encoder);
             if (gpu) {
                 cmd.add("-preset");
-                cmd.add("hq");
+                if (encoder.equals("av1_nvenc") || encoder.equals("libaom-av1")) {
+                    cmd.add("p7");
+                } else {
+                    cmd.add("hq");
+                }
             } else {
                 cmd.add("-preset");
                 cmd.add("veryfast");

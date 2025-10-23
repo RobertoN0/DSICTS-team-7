@@ -137,22 +137,33 @@ def start_ffmpeg(mode: str, input_path: str, tmp_dir: str, codec: str, gpu: bool
         else build_single(input_path, os.path.join(tmp_dir, "output.mp4"), codec, resolution, gpu)
     )
     print("[one_run] START ffmpeg:", " ".join(cmd))
-    preexec_fn = os.setsid if hasattr(os, "setsid") else None
-    return subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, preexec_fn=preexec_fn)
+    return subprocess.Popen(cmd)
 
 
 def kill_process(proc: subprocess.Popen, name="process"):
-    if not proc:
+    """Safely terminate a subprocess without killing the main script."""
+    if not proc or proc.poll() is not None:
         return
     try:
-        os.killpg(os.getpgid(proc.pid), signal.SIGTERM)
+        pgid = os.getpgid(proc.pid)
+        parent_pgid = os.getpgid(0)
+
+        # If child shares PGID with main script, only terminate it (avoid killing main)
+        if pgid == parent_pgid:
+            proc.terminate()
+        else:
+            os.killpg(pgid, signal.SIGTERM)
+
         proc.wait(timeout=5)
         print(f"[one_run] {name} PID {proc.pid} terminated.")
     except subprocess.TimeoutExpired:
-        print(f"[one_run] {name} did not exit in time — forcing kill.")
-        os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
-    except ProcessLookupError:
-        pass
+        # Force kill if process doesn't exit in time
+        try:
+            proc.kill()
+        except Exception:
+            pass
+    except Exception as e:
+        print(f"[one_run] Error while killing {name}: {e}")
 
 
 ###########################################

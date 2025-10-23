@@ -3,6 +3,8 @@ import argparse
 import os, glob
 import pandas as pd
 
+from tools.plots.plot_codec_comparisons import generate_cross_codec_comparisons
+
 CANONICAL_MEM_UNIT = "MiB"   # or "MB"
 PROFILES_ORDER = ['baseline', 'c1-only','c2-only', 'heap', 'interpret', 'low-threshold', 'double-thread']
 
@@ -93,6 +95,14 @@ def main():
             PROFILES_ORDER, CANONICAL_MEM_UNIT
         )
 
+    print("\n>>> Generating cross-codec comparison plots...")
+    print(f"{experiments_map.keys()}")
+    generate_cross_codec_comparisons(
+        experiments_map=experiments_map,
+        output_dir=args.output_dir,
+        canonical_mem_unit=CANONICAL_MEM_UNIT
+    )
+    print("Cross-codec comparison plots generated successfully!")
     print("\nAll plots generated successfully!")
 
 if __name__ == "__main__":
