@@ -26,7 +26,7 @@ def _(environment, **kwargs):
     """Parse additional CLI args passed to locust.
 
     Usage example:
-      locust -f tools/locustfile_encode.py --headless -u 5 -r 1 -t 1m --host http://localhost:8080 --codec h264 --resolution 480 --use-gpu false
+      locust -f tools/locustfile_encode.py --headless -u 3 -r 1 -t 3m --host http://localhost:8080 --codec h264 --resolution 1080 --use-gpu false
     """
     # locust exposes environment.parsed_options where custom args are available
     parsed = getattr(environment, "parsed_options", None)
@@ -54,7 +54,7 @@ def _(environment, **kwargs):
 
 
 class EncodeUser(HttpUser):
-    # wait time between tasks (change to tune load)
+    # wait time between tasks
     wait_time = between(0.5, 2)
 
     def on_start(self):
@@ -62,7 +62,6 @@ class EncodeUser(HttpUser):
         if not VIDEO_DIR.exists() or not VIDEO_DIR.is_dir():
             raise RuntimeError(f"Video directory not found: {VIDEO_DIR}")
 
-        # collect common video extensions
         exts = {".mp4"}
         self.videos = [p for p in VIDEO_DIR.iterdir() if p.suffix.lower() in exts and p.is_file()]
 
@@ -79,7 +78,6 @@ class EncodeUser(HttpUser):
         resolution = CONFIG.get("resolution") or random.choice(DEFAULT_RESOLUTIONS)
         use_gpu = CONFIG.get("use_gpu") or random.choice(DEFAULT_USE_GPU)
 
-        # form fields — adjust keys if your controller expects different names
         data = {
             "codec": codec,
             "resolution": resolution,
@@ -89,12 +87,10 @@ class EncodeUser(HttpUser):
         # Open file per request to avoid keeping big files in memory between tasks
         with open(video_path, "rb") as fh:
             files = {"file": (video_path.name, fh, "video/mp4")}
-            # Use catch_response to annotate failures for inspection
             with self.client.post("/encode/multi", files=files, data=data, catch_response=True, timeout=600) as resp:
                 if resp.status_code != 200:
                     resp.failure(f"Unexpected status {resp.status_code}: {resp.text[:200]}")
                 else:
-                    # Optionally inspect returned JSON to ensure encoding started/returned expected shape
                     try:
                         j = resp.json()
                         if not isinstance(j, dict):

@@ -29,11 +29,11 @@ def main():
         return
     print(f"Found {len(experiment_dirs)} experiment directories")
 
-    # Map: experiment_name -> { profile_name -> (merged_df, cpu_df, gpu_df or None) }
     experiments_map = {}
 
+    # Iterate over each experiment
     for exp_path in experiment_dirs:
-        exp_name = os.path.basename(exp_path)      # es. "h264-gpu"
+        exp_name = os.path.basename(exp_path)
         exp_out_dir = os.path.join(args.output_dir, exp_name)
         os.makedirs(exp_out_dir, exist_ok=True)
         print(f"\n>>> Processing experiment: {exp_name} ...")
@@ -45,9 +45,10 @@ def main():
 
         experiments_map[exp_name] = {}
 
+        # Iterate over each profile within the experiment
         for prof_dir in profile_dirs:
-            prof_dirname = os.path.basename(prof_dir)     # es. "baseline_2025..."
-            prof_key = prof_dirname.split('_')[0].lower() # "baseline", "c2-only", ...
+            prof_dirname = os.path.basename(prof_dir) 
+            prof_key = prof_dirname.split('_')[0].lower() 
 
             if prof_key not in PROFILES_ORDER:
                 print(f"  - Skipping non-standard profile folder: {prof_dirname}")
@@ -68,7 +69,7 @@ def main():
                     print(f"    --> SKIP: no CSV files found for {prof_dirname}")
                     continue
 
-                # Plots for profile
+                # Plots for each single profile
                 #generate_single_experiment_plots(
                 #    merged_df,
                 #    avg_cpu_df,
@@ -89,7 +90,7 @@ def main():
                 print(f"    Error in profile {prof_dirname}: {e}")
                 continue
 
-        # Overlay for experiment (4 profiles)
+        # Overlay for profiles in the same experiment
         generate_experiment_overlays(
             exp_name, experiments_map[exp_name], exp_out_dir,
             PROFILES_ORDER, CANONICAL_MEM_UNIT

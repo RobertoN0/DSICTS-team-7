@@ -10,7 +10,7 @@ from .io_utils import (
 
 def generate_single_experiment_plots(merged_df, cpu_df, gpu_df, title, output_prefix, canonical_mem_unit):
     """
-    Plots for single profile (same logic as original):
+    Plots for single profile:
       1) Power over time (CPU, GPU, Total)
       2) Total Energy (bar)
       3) Memory over time (CPU RAM + GPU VRAM overlay)
