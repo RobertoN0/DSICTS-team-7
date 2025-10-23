@@ -4,12 +4,8 @@ server:
 spring:
   servlet:
     multipart:
-      max-file-size: 600MB
-      max-request-size: 600MB
-  data:
-    mongodb:
-      uri: mongodb://localhost:27017/videodb
-
+      max-file-size: -1
+      max-request-size: -1
 management:
   endpoints:
     web:

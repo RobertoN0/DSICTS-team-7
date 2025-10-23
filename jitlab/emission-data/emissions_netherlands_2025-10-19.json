@@ -1,0 +1,176 @@
+{
+    "country": {
+        "id": "netherlands",
+        "name": "Netherlands"
+    },
+    "emissions": [
+        {
+            "value": 206,
+            "unit": "g CO2eq/kWh",
+            "timestamp": 1760875200,
+            "dateUTC": "2025-10-19T12:00:00+00:00",
+            "dateLocal": "2025-10-19T14:00:00+02:00"
+        },
+        {
+            "value": 216,
+            "unit": "g CO2eq/kWh",
+            "timestamp": 1760871600,
+            "dateUTC": "2025-10-19T11:00:00+00:00",
+            "dateLocal": "2025-10-19T13:00:00+02:00"
+        },
+        {
+            "value": 244,
+            "unit": "g CO2eq/kWh",
+            "timestamp": 1760868000,
+            "dateUTC": "2025-10-19T10:00:00+00:00",
+            "dateLocal": "2025-10-19T12:00:00+02:00"
+        },
+        {
+            "value": 230,
+            "unit": "g CO2eq/kWh",
+            "timestamp": 1760864400,
+            "dateUTC": "2025-10-19T09:00:00+00:00",
+            "dateLocal": "2025-10-19T11:00:00+02:00"
+        },
+        {
+            "value": 265,
+            "unit": "g CO2eq/kWh",
+            "timestamp": 1760860800,
+            "dateUTC": "2025-10-19T08:00:00+00:00",
+            "dateLocal": "2025-10-19T10:00:00+02:00"
+        },
+        {
+            "value": 294,
+            "unit": "g CO2eq/kWh",
+            "timestamp": 1760857200,
+            "dateUTC": "2025-10-19T07:00:00+00:00",
+            "dateLocal": "2025-10-19T09:00:00+02:00"
+        },
+        {
+            "value": 304,
+            "unit": "g CO2eq/kWh",
+            "timestamp": 1760853600,
+            "dateUTC": "2025-10-19T06:00:00+00:00",
+            "dateLocal": "2025-10-19T08:00:00+02:00"
+        },
+        {
+            "value": 278,
+            "unit": "g CO2eq/kWh",
+            "timestamp": 1760850000,
+            "dateUTC": "2025-10-19T05:00:00+00:00",
+            "dateLocal": "2025-10-19T07:00:00+02:00"
+        },
+        {
+            "value": 272,
+            "unit": "g CO2eq/kWh",
+            "timestamp": 1760846400,
+            "dateUTC": "2025-10-19T04:00:00+00:00",
+            "dateLocal": "2025-10-19T06:00:00+02:00"
+        },
+        {
+            "value": 313,
+            "unit": "g CO2eq/kWh",
+            "timestamp": 1760842800,
+            "dateUTC": "2025-10-19T03:00:00+00:00",
+            "dateLocal": "2025-10-19T05:00:00+02:00"
+        },
+        {
+            "value": 341,
+            "unit": "g CO2eq/kWh",
+            "timestamp": 1760839200,
+            "dateUTC": "2025-10-19T02:00:00+00:00",
+            "dateLocal": "2025-10-19T04:00:00+02:00"
+        },
+        {
+            "value": 385,
+            "unit": "g CO2eq/kWh",
+            "timestamp": 1760835600,
+            "dateUTC": "2025-10-19T01:00:00+00:00",
+            "dateLocal": "2025-10-19T03:00:00+02:00"
+        },
+        {
+            "value": 401,
+            "unit": "g CO2eq/kWh",
+            "timestamp": 1760832000,
+            "dateUTC": "2025-10-19T00:00:00+00:00",
+            "dateLocal": "2025-10-19T02:00:00+02:00"
+        },
+        {
+            "value": 398,
+            "unit": "g CO2eq/kWh",
+            "timestamp": 1760828400,
+            "dateUTC": "2025-10-18T23:00:00+00:00",
+            "dateLocal": "2025-10-19T01:00:00+02:00"
+        },
+        {
+            "value": 408,
+            "unit": "g CO2eq/kWh",
+            "timestamp": 1760824800,
+            "dateUTC": "2025-10-18T22:00:00+00:00",
+            "dateLocal": "2025-10-19T00:00:00+02:00"
+        },
+        {
+            "value": 419,
+            "unit": "g CO2eq/kWh",
+            "timestamp": 1760821200,
+            "dateUTC": "2025-10-18T21:00:00+00:00",
+            "dateLocal": "2025-10-18T23:00:00+02:00"
+        },
+        {
+            "value": 441,
+            "unit": "g CO2eq/kWh",
+            "timestamp": 1760817600,
+            "dateUTC": "2025-10-18T20:00:00+00:00",
+            "dateLocal": "2025-10-18T22:00:00+02:00"
+        },
+        {
+            "value": 448,
+            "unit": "g CO2eq/kWh",
+            "timestamp": 1760814000,
+            "dateUTC": "2025-10-18T19:00:00+00:00",
+            "dateLocal": "2025-10-18T21:00:00+02:00"
+        },
+        {
+            "value": 469,
+            "unit": "g CO2eq/kWh",
+            "timestamp": 1760810400,
+            "dateUTC": "2025-10-18T18:00:00+00:00",
+            "dateLocal": "2025-10-18T20:00:00+02:00"
+        },
+        {
+            "value": 480,
+            "unit": "g CO2eq/kWh",
+            "timestamp": 1760806800,
+            "dateUTC": "2025-10-18T17:00:00+00:00",
+            "dateLocal": "2025-10-18T19:00:00+02:00"
+        },
+        {
+            "value": 486,
+            "unit": "g CO2eq/kWh",
+            "timestamp": 1760803200,
+            "dateUTC": "2025-10-18T16:00:00+00:00",
+            "dateLocal": "2025-10-18T18:00:00+02:00"
+        },
+        {
+            "value": 493,
+            "unit": "g CO2eq/kWh",
+            "timestamp": 1760799600,
+            "dateUTC": "2025-10-18T15:00:00+00:00",
+            "dateLocal": "2025-10-18T17:00:00+02:00"
+        },
+        {
+            "value": 461,
+            "unit": "g CO2eq/kWh",
+            "timestamp": 1760796000,
+            "dateUTC": "2025-10-18T14:00:00+00:00",
+            "dateLocal": "2025-10-18T16:00:00+02:00"
+        },
+        {
+            "value": 407,
+            "unit": "g CO2eq/kWh",
+            "timestamp": 1760792400,
+            "dateUTC": "2025-10-18T13:00:00+00:00",
+            "dateLocal": "2025-10-18T15:00:00+02:00"
+        }
+    ]
+}

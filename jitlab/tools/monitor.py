@@ -71,12 +71,14 @@ def main():
         print("[monitor] process ended before sampling started", file=sys.stderr)
         sys.exit(0)
 
-    header = ["ts", "cpu_percent", "rss_mb", "power_w", "energy_j_total"]
+    header = ["ts", "cpu_percent", "rss_mb", "power_w", "energy_j_total", "video_tmp_count"]
     t0 = time.time()
     next_tick = t0 + args.interval
     last_e = None
     last_t = t0
     total_j = 0.0
+    repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+    video_tmp_dir = os.path.join(repo_root, "videos", "tmp")
 
     with open(out_path, "w", newline="") as f:
         w = csv.writer(f)
@@ -119,9 +121,15 @@ def main():
                     except Exception:
                         # If energy read fails, keep power_w at 0 and continue
                         pass
-
+                
+                # Count files in video/tmp
+                try:
+                    video_count = len([f for f in os.listdir(video_tmp_dir) if os.path.isfile(os.path.join(video_tmp_dir, f))])
+                except FileNotFoundError:
+                    video_count = 0
+                
                 # Write row
-                w.writerow([now, f"{cpu:.2f}", f"{rss_mb:.2f}", f"{power_w:.3f}", f"{total_j:.6f}"])
+                w.writerow([now, f"{cpu:.2f}", f"{rss_mb:.2f}", f"{power_w:.3f}", f"{total_j:.6f}", video_count])
                 f.flush()
                 next_tick += args.interval
         except KeyboardInterrupt:

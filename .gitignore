@@ -1,7 +1,9 @@
 .vscode/
-runs/
+runs*/
 target/
 virenv/
+venve
+__pycache__/
 energibridge
 LibreHardwareMonitor.sys
 get_context.sh
@@ -10,3 +12,4 @@ code_context.txt
 part.bin
 /jitlab/videos
 sustainable
+/jitlab/plots

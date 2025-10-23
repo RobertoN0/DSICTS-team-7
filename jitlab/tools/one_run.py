@@ -1,179 +1,330 @@
 #!/usr/bin/env python3
-"""one_run.py
-
-Canonical orchestrator: start the monitor for the server PID (or cmd substring),
-then run Locust headlessly with the provided locustfile. Writes monitor CSV and
-Locust CSV prefix into the output directory.
-
-Usage examples:
-  # simple headless Locust run with monitor
-  python3 tools/one_run.py --users 50 --spawn-rate 10 --runSec 120 --outdir runs
-
-Notes:
-  - The script expects the server process to already be running; it looks it up
-    by a substring of the server commandline (default: `jitlab-0.0.1-SNAPSHOT.jar`).
-"""
 
 from datetime import datetime
 import argparse
 import os
 import shlex
+import shutil
 import subprocess
 import sys
 import time
+import json
+import signal
+from typing import List
+import urllib.request
+import urllib.error
 
+    
+PROFILE_FLAGS = {
+    "baseline": [],
+    "interpret": ["-Xint"],
+    "c2-only": ["-XX:-TieredCompilation"],
+    "c1-only": ["-XX:+TieredCompilation", "-XX:TieredStopAtLevel=1"],
+    "low-threshold": ["-XX:CompileThreshold=1000"],
+    "double-thread": ["-XX:CICompilerCount=2"],
+    "heap": ["-Xms1g", "-Xmx1g"],
+}
 
-def find_pid(cmd_substr: str):
+def _profile_flags(profile: str) -> List[str]:
     try:
-        out = subprocess.check_output(["pgrep", "-fa", cmd_substr], text=True)
-        return int(out.strip().splitlines()[0].split()[0])
-    except Exception:
-        return None
+        return PROFILE_FLAGS[profile]
+    except KeyError as exc:
+        raise ValueError(f"Unknown profile '{profile}'. Known: {', '.join(PROFILE_FLAGS)}") from exc
 
 
 def run():
     ap = argparse.ArgumentParser(description="Run monitor + headless Locust experiment")
-    ap.add_argument("--users", type=int, default=50, help="Number of Locust users (virtual users)")
-    ap.add_argument("--spawn-rate", type=int, default=10, help="Locust spawn rate (users/sec)")
-    ap.add_argument("--runSec", type=int, default=120, help="Duration of the locust run in seconds")
-    ap.add_argument("--locustfile", default="tools/locustfile.py", help="Locustfile to run")
     ap.add_argument("--host", default="http://localhost:8080", help="Target host for Locust")
-    ap.add_argument("--server-cmd-substr", default="jitlab-0.0.1-SNAPSHOT.jar", help="Substring to find server PID")
-    ap.add_argument("--outdir", default="runs", help="Directory to write CSV outputs")
     ap.add_argument("--monitor-sudo", action="store_true", help="Run the monitor under sudo (useful if energy_uj is not readable)")
+    ap.add_argument("--server-cmd-substr", default="jitlab-0.0.1-SNAPSHOT.jar", help="Substring to find server PID")
+    ap.add_argument("--runSec", type=int, default=120, help="Duration of the locust run in seconds")
+    ap.add_argument("--timeout", type=int, default=60, help="Seconds to wait between runs (default: 60)")
+    ap.add_argument("--warmupSec", type=int, default=0, help="Duration of the warmup phase in seconds (default: 0, no warmup)")
+    ap.add_argument("--numberOfRepetitions", type=int, default=30, help="Number of times to repeat the test (default: 30)")
+    ap.add_argument("--locustfile", default="tools/locustfile_encode.py", help="Locustfile to run")
+    ap.add_argument("--users", type=int, default=3, help="Number of Locust users (virtual users)")
+    ap.add_argument("--spawn-rate", type=int, default=1, help="Locust spawn rate (users/sec)")
+    ap.add_argument("--profile", default=None, help="Profile name used by build/cleanup helper")
+    ap.add_argument("--codec", default=None, help="Codec to pass to locustfile (e.g. h264)")
+    ap.add_argument("--resolution", default=None, help="Resolution to pass to locustfile (e.g. 480)")
+    ap.add_argument("--use-gpu", default="false", help="use-gpu flag to pass to locustfile (true/false)")
+    ap.add_argument("--outdir", default="runs", help="Directory to write CSV outputs")
     args = ap.parse_args()
+
+    repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+    jar_path = os.path.join(repo_root, "target", "jitlab-0.0.1-SNAPSHOT.jar")
+    videos_tmp = os.path.join(repo_root, "videos", "tmp")
+    python_bin = sys.executable or "python3"
+    profile = args.profile or "baseline"
+
+    if not os.path.isfile(jar_path):
+        print(f"[one_run] JAR not found at {jar_path}. Run mvn package first.", file=sys.stderr)
+        sys.exit(1)
 
     ts = datetime.now().strftime("%Y%m%d_%H%M%S")
     os.makedirs(args.outdir, exist_ok=True)
 
-    pid = find_pid(args.server_cmd_substr)
-    if not pid:
-        print(f"[one_run] Could not find server PID by '{args.server_cmd_substr}'. Start the server first.", file=sys.stderr)
-        sys.exit(1)
-    print(f"[one_run] Using server PID: {pid}")
+    codec = args.codec or "unknown"
+    hardware = "gpu" if str(args.use_gpu).lower() == "true" else "cpu"
+    root_dir = os.path.join(args.outdir, f"{codec}-{hardware}")
+    os.makedirs(root_dir, exist_ok=True)
+    profile = args.profile or "baseline"
+    profile_dir = os.path.join(root_dir, f"{profile}_{ts}")
+    os.makedirs(profile_dir, exist_ok=True)
 
-    mon_csv = os.path.join(args.outdir, f"monitor_{ts}.csv")
-    locust_prefix = os.path.join(args.outdir, f"locust_{ts}")
+    ###########################################
+                ## Helper Functions ##
+    ############################################
+    def start_server() -> int:
+        """Start the server process for the provided profile and wait until ready."""
+        flags = _profile_flags(profile)
+        cmd: List[str] = ["java"] + flags + ["-jar", str(jar_path)]
 
-    # Monitor duration slightly longer than Locust run
-    duration = args.runSec + 5
-    mon_cmd = ["python3", "tools/monitor.py", "--pid", str(pid), "--interval", "1", "--duration", str(duration), "--out", mon_csv]
-    # If user requested sudo for the monitor, prefix the command.
-    if args.monitor_sudo:
-        print("[one_run] monitor will be started with sudo (you may be prompted for your password)")
-        mon_cmd = ["sudo"] + mon_cmd
-    print("[one_run] START monitor:", " ".join(shlex.quote(x) for x in mon_cmd))
-    mon_p = subprocess.Popen(mon_cmd, stdout=sys.stdout, stderr=sys.stderr)
+        cwd = repo_root or jar_path.parent
+        print(f"Starting server cmd: {' '.join(cmd)} (cwd={cwd})")
+        preexec_fn = os.setsid if hasattr(os, "setsid") else None
+        proc = subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, cwd=str(cwd), preexec_fn=preexec_fn, )
 
-    locust_cmd = ["locust", "-f", args.locustfile, "--headless",
-                  "-u", str(args.users), "-r", str(max(1, args.spawn_rate)),
-                  "-t", f"{args.runSec}s", "--host", args.host,
-                  "--csv", locust_prefix]
+        if not wait_for_server():
+            print("Server did not become ready in time; terminating.")
+            raise RuntimeError("Server failed readiness check.")
+        return proc
 
-    # Prefer the repo virtualenv locust binary when available (sudo strips PATH)
-    virenv_locust = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'virenv', 'bin', 'locust'))
-    if os.path.isfile(virenv_locust) and os.access(virenv_locust, os.X_OK):
-        locust_cmd[0] = virenv_locust
+    def wait_for_server() -> bool:
+        url = args.host.rstrip("/") + "/ping"
+        print(f"Waiting for server readiness at {url} (timeout={60}s)")
 
-    print("[one_run] START locust:", " ".join(shlex.quote(x) for x in locust_cmd))
-    try:
-        ret = subprocess.run(locust_cmd).returncode
-    except FileNotFoundError:
-        print("[one_run] 'locust' not found. Try activating the virtualenv or install locust in system PATH.", file=sys.stderr)
+        deadline = time.time() + max(1, 60)
+        while time.time() < deadline:
+            try:
+                with urllib.request.urlopen(url, timeout=2) as resp:
+                    if 200 <= getattr(resp, "status", getattr(resp, "code", 200)) < 500:
+                        return True
+            except urllib.error.URLError:
+                pass
+            except Exception as exc:  # noqa: BLE001
+                print(f"Readiness probe error: {exc}")
+            time.sleep(1.0)
+        return False
+    
+    def kill_server(proc):
+        """Terminate the started Java server gracefully."""
+        if not proc:
+            return
         try:
-            if mon_p.poll() is None:
-                mon_p.terminate()
-        except Exception:
-            pass
-        sys.exit(2)
-    print(f"[one_run] locust exited with code {ret}")
-    if ret != 0:
-        print("[one_run] Locust returned non-zero exit code.")
-
-    # Wait for monitor to finish; enforce a small deadline
-    print("[one_run] WAIT monitor to finish…")
-    deadline = time.time() + duration + 15
-    while mon_p.poll() is None and time.time() < deadline:
-        time.sleep(0.2)
-    if mon_p.poll() is None:
-        print("[one_run] monitor did not exit in time; terminating…", file=sys.stderr)
-        mon_p.terminate()
-        try:
-            mon_p.wait(timeout=5)
+            os.killpg(os.getpgid(proc.pid), signal.SIGTERM)
+            proc.wait(timeout=5)
+            print(f"[one_run] Server PID {proc.pid} terminated.")
         except subprocess.TimeoutExpired:
-            mon_p.kill()
+            print(f"[one_run] Server did not exit in time — forcing kill.")
+            os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+
+
+    def helper_cleanup(monitor_pid) -> None:
+        try:
+            # Kill any ffmpeg process still running
+            print("[one_run] Killing any ffmpeg processes...")
+            subprocess.run(["pkill", "-9", "ffmpeg"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            subprocess.run(["pkill", f"monitor_pid={monitor_pid}"])
+            
+            # Delete and recreate videos/tmp directory
+            print(f"[one_run] Cleaning directory: {videos_tmp}")
+            shutil.rmtree(videos_tmp, ignore_errors=True)
+        except Exception as e:
+            print(f"[one_run] Cleanup failed: {e}", file=sys.stderr)
+
+    def warmup(warmupSec: int, use_gpu: bool) -> None:
+        if warmupSec > 0:
+            if use_gpu:
+                print(f"[one_run] Starting GPU warmup for {warmupSec} seconds…")
+                sample_video = os.path.join(videos_tmp, "warmup_sample.mp4")
+                if not os.path.isfile(sample_video):
+                    print("[one_run] Creating temporary warmup video (CPU-generated pattern)...")
+                    subprocess.run([
+                        "ffmpeg", "-v", "error", "-f", "lavfi",
+                        "-i", "testsrc=duration=10:size=1920x1080:rate=30",
+                        "-c:v", "libx264", "-pix_fmt", "yuv420p",
+                        sample_video
+                    ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+                # Run warmup encoding on GPU for the specified time
+                gpu_warmup = subprocess.run([
+                    "ffmpeg",
+                    "-hwaccel", "cuda",
+                    "-stream_loop", "-1",
+                    "-re",
+                    "-t", str(warmupSec),
+                    "-f", "lavfi",
+                    "-i", "testsrc=size=3840x2160:rate=60",
+                    "-vf", "format=yuv420p,hwupload_cuda",
+                    "-c:v", "av1_nvenc",
+                    "-preset", "p5",
+                    "-b:v", "5M",
+                    "-f", "null", "-"
+                ])
+
+                if gpu_warmup.returncode == 0:
+                    print("[one_run] GPU warmup complete ✅")
+                else:
+                    print("[one_run] GPU warmup failed ❌", file=sys.stderr)
+            else:
+                # --- CPU warmup: synthetic load via /work/cpu
+                print(f"[one_run] Starting CPU warmup phase for {warmupSec} seconds…")
+                load_py = os.path.join(os.path.dirname(__file__), "load_py.py")
+                warmup_body = json.dumps({"iterations": 2000, "payloadSize": 20000})
+                warmup_cmd = [
+                    python_bin, load_py,
+                    "--url", args.host.rstrip("/") + "/work/cpu",
+                    "--runSec", str(warmupSec),
+                    "--body", warmup_body,
+                    "--no-save"
+                ]
+                print("[one_run] START warmup:", " ".join(shlex.quote(x) for x in warmup_cmd))
+                try:
+                    ret = subprocess.run(warmup_cmd).returncode
+                except FileNotFoundError:
+                    print("[one_run] Python interpreter not found for warmup.", file=sys.stderr)
+                    sys.exit(2)
+                print(f"[one_run] Warmup exited with code {ret}")
+
+
+    ############################################
+                ## Experiment Loop ##
+    ############################################
+    for i in range(args.numberOfRepetitions):
+        iter_dir = os.path.join(profile_dir, f"iter_{i+1}")
+        os.makedirs(iter_dir, exist_ok=True)
+        #############################################
+            ## Cool down after previous run ##
+        #############################################
+        print(f"[one_run] Starting experiment iteration {i + 1}…")
+        if args.timeout > 0 and i > 0:
+            time.sleep(args.timeout)
+
+        server_pid = None
+        mon_p = None
+        try:
+            ###########################################
+                        ## Server start up ##
+            ###########################################
+            server_proc = start_server()
+            server_pid = server_proc.pid
+            print(f"[one_run] Using server PID: {server_proc.pid}")
+
+            ############################################
+                        ## Warmup Start ##
+            ############################################
+            if args.warmupSec > 0 and i == 0:
+                use_gpu = str(args.use_gpu).lower() == "true"
+                warmup(args.warmupSec, use_gpu)
+                if args.timeout > 0:
+                    print(f"[one_run] Cooldown after warmup for {args.timeout} seconds…")
+                    time.sleep(args.timeout)
+
+            ###########################################
+                        ## Monitor Start ##
+            ###########################################
+            mon_csv = os.path.join(iter_dir, "monitor_iter.csv")
+            duration = args.runSec + 5
+            mon_cmd = [python_bin, "tools/monitor.py",
+                "--pid", str(server_pid),
+                "--interval", "1",
+                "--duration", str(duration),
+                "--out", mon_csv,
+            ]
+            if args.monitor_sudo:
+                mon_cmd = ["sudo"] + mon_cmd
+            print("[one_run] START monitor:", " ".join(shlex.quote(x) for x in mon_cmd))
+            mon_p = subprocess.Popen(mon_cmd, stdout=sys.stdout, stderr=sys.stderr)
+            gpu_p = None
+            gpu_csv = None
+            if args.use_gpu == "true":
+                gpu_csv = os.path.join(iter_dir, "gpu_monitor_iter.csv")
+                gpu_cmd = [
+                    "python3", "tools/gpu_monitor.py",                
+                    "--duration", str(duration),        
+                    "--out", gpu_csv
+                ]
+                print("[one_run] START gpu_monitor:", " ".join(shlex.quote(x) for x in gpu_cmd))
+                gpu_p = subprocess.Popen(gpu_cmd, stdout=sys.stdout, stderr=sys.stderr)
+
+            ###########################################
+                ## Locust encode stress test  ##
+            ###########################################
+            #locust_prefix = os.path.join(args.outdir, f"locust_{ts}")
+            locust_cmd = ["locust", "-f", args.locustfile, "--headless",
+                "-u", str(args.users),
+                "-r", str(max(1, args.spawn_rate)),
+                "-t", f"{args.runSec}s",
+                "--host", args.host,
+                "--loglevel", "CRITICAL"
+            #   "--csv", locust_prefix,
+            ]
+
+            virenv_locust = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "virenv", "bin", "locust"))
+            if os.path.isfile(virenv_locust) and os.access(virenv_locust, os.X_OK):
+                locust_cmd[0] = virenv_locust
+
+            print("[one_run] START locust:", " ".join(shlex.quote(x) for x in locust_cmd))
+            env = os.environ.copy()
+            if args.codec:
+                env["LOCUST_CODEC"] = args.codec
+            if args.resolution:
+                env["LOCUST_RESOLUTION"] = args.resolution
+            if args.use_gpu:
+                env["LOCUST_USE_GPU"] = str(args.use_gpu)
+
+            try:
+                ret = subprocess.run(
+                    locust_cmd,
+                    env=env,
+                    stdout=subprocess.DEVNULL, 
+                    stderr=subprocess.DEVNULL  
+                ).returncode
+            except FileNotFoundError:
+                print("[one_run] 'locust' not found. Try activating the virtualenv or install locust in system PATH.", file=sys.stderr)
+                sys.exit(2)
+            print(f"[one_run] locust exited with code {ret}")
+            if ret != 0:
+                print("[one_run] Locust returned non-zero exit code.")
+
+            ###########################################
+                        ## End of Runtime ##
+            ###########################################
+            print("[one_run] WAIT monitor to finish…")
+            deadline = time.time() + duration + 15
+            while mon_p.poll() is None and time.time() < deadline:
+                time.sleep(0.2)
+            deadline = time.time() + duration + 15
+            while mon_p.poll() is None and time.time() < deadline:
+                time.sleep(0.2)
+            if mon_p.poll() is None:
+                print("[one_run] monitor did not exit in time; terminating…", file=sys.stderr)
+                mon_p.terminate()
+                try:
+                    mon_p.wait(timeout=5)
+                except subprocess.TimeoutExpired:
+                    mon_p.kill()
+            if gpu_p:
+                deadline = time.time() + duration + 15
+                while gpu_p.poll() is None and time.time() < deadline:
+                    time.sleep(0.2)
+                if gpu_p.poll() is None:
+                    print("[one_run] gpu_monitor did not exit in time; terminating…", file=sys.stderr)
+                    gpu_p.terminate()
+                    try:
+                        gpu_p.wait(timeout=5)
+                    except subprocess.TimeoutExpired:
+                        gpu_p.kill()
+        finally:
+            kill_server(server_proc)
+            helper_cleanup(mon_p.pid if mon_p else None)
 
     print("\n✅ Done.")
-    print(f"Locust CSV prefix: {locust_prefix}*")
-    print(f"Monitor CSV:       {mon_csv}")
-
-    # Attempt to generate plots where possible.
-    # If Locust created a stats CSV, convert a single summary row into a minimal load CSV
-    # compatible with tools/plot.py and then call plot.py.
-    stats_csv = locust_prefix + "_stats.csv"
-    if os.path.isfile(stats_csv) and os.path.isfile(mon_csv):
-        try:
-            # read locust stats and produce a small 'load' CSV with expected header
-            import csv as _csv
-            load_conv = os.path.join(args.outdir, f"load_from_locust_{ts}.csv")
-            with open(stats_csv, 'r', newline='') as s, open(load_conv, 'w', newline='') as o:
-                reader = _csv.reader(s)
-                writer = _csv.writer(o)
-                writer.writerow(["ts","rps","avg_ms","p50_ms","p95_ms","ok","err"])
-                header = next(reader, None)
-                cols = {c: i for i, c in enumerate(header)} if header else {}
-
-                # Heuristics for column names in Locust stats csv
-                def idx(*names):
-                    for n in names:
-                        if n in cols:
-                            return cols[n]
-                    return None
-
-                idx_rps = idx('Total RPS', 'Total rps', 'total_rps', 'TotalRPS')
-                idx_avg = idx('Average', 'avg_response_time')
-                idx_p50 = idx('Median', 'median_response_time')
-                idx_p95 = idx('95%', '95%') or idx('p95', 'p95_ms')
-                idx_ok = idx('Request Count', 'request_count', 'Total Requests')
-                idx_fail = idx('Failure Count', 'failure_count', 'Total Failures')
-
-                ts0 = int(time.time())
-                wrote = False
-                for row in reader:
-                    if not any(row):
-                        continue
-                    def safe(i, cast=float, default=0):
-                        try:
-                            return cast(row[i]) if i is not None and i < len(row) else default
-                        except Exception:
-                            return default
-
-                    rps = safe(idx_rps, float, 0.0)
-                    avg_ms = safe(idx_avg, float, 0.0)
-                    p50 = safe(idx_p50, float, 0.0)
-                    p95 = safe(idx_p95, float, 0.0)
-                    ok = int(safe(idx_ok, float, 0))
-                    err = int(safe(idx_fail, float, 0))
-                    writer.writerow([ts0, f"{rps:.3f}", f"{avg_ms:.3f}", f"{p50:.3f}", f"{p95:.3f}", ok, err])
-                    wrote = True
-                    break
-
-            if not wrote:
-                print("[one_run] Could not extract values from locust stats for plotting; skipping.")
-            else:
-                print(f"[one_run] Generated load CSV from locust stats: {load_conv}")
-                env = os.environ.copy()
-                env["MPLBACKEND"] = "Agg"
-                plot_cmd = ["python3", "tools/plot.py", "--load", load_conv, "--monitor", mon_csv, "--title", f"Locust run {ts}"]
-                try:
-                    print("[one_run] START plot:", " ".join(shlex.quote(x) for x in plot_cmd))
-                    subprocess.check_call(plot_cmd, env=env)
-                except subprocess.CalledProcessError as e:
-                    print(f"[one_run] plotting failed (exit {e.returncode}).", file=sys.stderr)
-        except Exception as e:
-            print(f"[one_run] Failed to prepare plot data: {e}", file=sys.stderr)
+    print(f"Outputs saved under: {profile_dir}")
 
 
 if __name__ == "__main__":
     run()
-
