@@ -20,7 +20,10 @@ As other important code files we consider:
     - [`plots_scripts`](jitlab/tools/plots_scripts/main.py): python module used to create comparison diagrams available in [/plots](plots/h264_GPU)
 
 - Results:
-    - Main experiment results can be found in [/results_h264gpu](jitlab/results_h264gpu)
+    - Main experimental results are stored in [`/results`](jitlab/results/), which contains:
+        - `h264-gpu/` → 7 JIT compiler profiles (baseline, c1-only, c2-only, interpret, heap, low-threshold, double-thread);
+        - `hevc-gpu/` → baseline profile;
+        - `av1-gpu/` → baseline profile.
     - Retrieved Carbon Intensity Factors can be found in [/emission-data](jitlab/emission-data)
 
 ---
@@ -39,3 +42,10 @@ Make sure to have the python dependencies installed on your local machine or on 
 ```bash
 pip install requirements.txt
 ```
+
+FFmpeg must be installed and accessible from the command line.
+```bash
+ffmpeg --version
+```
+
+GPU-accelerated transcoding (--use-gpu true) is only supported on NVIDIA GPUs with NVENC hardware encoder support.
