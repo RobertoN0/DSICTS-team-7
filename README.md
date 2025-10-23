@@ -47,5 +47,6 @@ FFmpeg must be installed and accessible from the command line.
 ```bash
 ffmpeg --version
 ```
+In order to reproduce our experiment the video we used can be found at: https://www.youtube.com/watch?v=iHdviZkM7S4
 
 GPU-accelerated transcoding (--use-gpu true) is only supported on NVIDIA GPUs with NVENC hardware encoder support.
