@@ -1,5 +1,37 @@
-# DSICTS-team-7
- Repository of group 7 for the project of the course Designining Sustainable ICT Systems.
+<h1 align="center">Video Transcoding Sustainability Study</h1>
+
+<p align="center">
+  <strong>What does a JVM warm-up setting cost, in watts, at the scale of a video platform?</strong>
+</p>
+
+<p align="center">
+  An energy and carbon study of GPU video transcoding across JVM JIT compilation profiles, measured
+  under sustained load against a Spring Boot transcoding server and extrapolated to the daily
+  footprint of a commercial video service. Group 7, Designing Sustainable ICT Systems, TU Delft.
+</p>
+
+<p align="center">
+  <img src="https://img.shields.io/badge/Field-green%20software-1F5673?style=flat-square" alt="Green software">
+  <img src="https://img.shields.io/badge/Method-controlled%20energy%20measurement-1F5673?style=flat-square" alt="Controlled energy measurement">
+  <img src="https://img.shields.io/badge/License-MIT-2C6248?style=flat-square" alt="MIT License">
+</p>
+
+<p align="center">
+  <a href="final_report/"><strong>Final report</strong></a> ·
+  <a href="plots/">Plots</a> ·
+  <a href="jitlab/">Experiment harness</a>
+</p>
+
+<p align="center">
+  <img src="https://img.shields.io/badge/Java-3D4453?style=flat-square&logo=openjdk&logoColor=white" alt="Java">
+  <img src="https://img.shields.io/badge/Spring%20Boot-3D4453?style=flat-square&logo=springboot&logoColor=white" alt="Spring Boot">
+  <img src="https://img.shields.io/badge/FFmpeg-3D4453?style=flat-square&logo=ffmpeg&logoColor=white" alt="FFmpeg">
+  <img src="https://img.shields.io/badge/NVENC-3D4453?style=flat-square&logo=nvidia&logoColor=white" alt="NVENC">
+  <img src="https://img.shields.io/badge/Locust-3D4453?style=flat-square" alt="Locust">
+  <img src="https://img.shields.io/badge/Python-3D4453?style=flat-square&logo=python&logoColor=white" alt="Python">
+</p>
+
+---
 
 ## Experiment Files
 We here document our repository structure and main files used for the experiment.
